@@ -1,0 +1,66 @@
+:root {
+  --text: #0f172a;
+  --muted: #475569;
+  --surface: #f1f5f9;
+  --card: #ffffff;
+  --border: #e2e8f0;
+  --input-bg: #f8fafc;
+  --track: #e2e8f0;
+  --primary: #2563eb;
+  --accent-bg: #eff6ff;
+  --shadow: 0 4px 24px rgba(15, 23, 42, 0.06);
+  font-family: system-ui, 'Segoe UI', Roboto, Arial, sans-serif;
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--surface);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #f1f5f9;
+    --muted: #cbd5e1;
+    --surface: #0f172a;
+    --card: #1e293b;
+    --border: #334155;
+    --input-bg: #0f172a;
+    --track: #334155;
+    --primary: #60a5fa;
+    --accent-bg: #172554;
+    --shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
+  }
+
+  .btn-danger {
+    background: #450a0a;
+    color: #fecaca;
+    border-color: #7f1d1d;
+  }
+
+  .fab-secondary {
+    background: #334155;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100dvh;
+  direction: rtl;
+  text-align: right;
+}
+
+#root {
+  min-height: 100dvh;
+}
+
+input[type='email'],
+input[type='url'],
+.ltr-input {
+  direction: ltr;
+  text-align: left;
+  unicode-bidi: plaintext;
+}

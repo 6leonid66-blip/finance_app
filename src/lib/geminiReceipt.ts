@@ -1,0 +1,109 @@
+type ReceiptAnalysis = {
+  amount?: number
+  description?: string
+  suggestedCategory?: string
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      const value = reader.result
+      if (typeof value !== 'string') {
+        reject(new Error('לא הצלחתי לקרוא את הקובץ'))
+        return
+      }
+      const base64 = value.includes(',') ? value.split(',')[1] : value
+      resolve(base64)
+    }
+    reader.onerror = () => reject(new Error('קריאת קובץ נכשלה'))
+    reader.readAsDataURL(file)
+  })
+}
+
+function normalizeAmount(raw: unknown): number | undefined {
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return raw
+  if (typeof raw !== 'string') return undefined
+  const sanitized = raw.replace(/[^\d.,-]/g, '').replace(/,/g, '')
+  const num = Number(sanitized)
+  if (!Number.isFinite(num) || num <= 0) return undefined
+  return num
+}
+
+export async function analyzeReceiptWithGemini(params: {
+  file: File
+  categories: readonly string[]
+}): Promise<ReceiptAnalysis> {
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY as string | undefined
+  if (!apiKey) {
+    throw new Error('חסר VITE_GEMINI_API_KEY בקובץ .env')
+  }
+
+  const base64 = await fileToBase64(params.file)
+  const prompt = `Analyze this Hebrew receipt/check image and return only JSON.
+JSON keys:
+- amount: number (total amount in ILS)
+- description: short Hebrew description (max 40 chars)
+- suggestedCategory: choose one exact value from this list: ${params.categories.join(', ')}
+If uncertain, set suggestedCategory to "אחר".`
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { text: prompt },
+              {
+                inline_data: {
+                  mime_type: params.file.type || 'image/jpeg',
+                  data: base64,
+                },
+              },
+            ],
+          },
+        ],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.1,
+        },
+      }),
+    },
+  )
+
+  if (!response.ok) {
+    throw new Error(`Gemini API error: ${response.status}`)
+  }
+
+  const data = (await response.json()) as {
+    candidates?: Array<{
+      content?: { parts?: Array<{ text?: string }> }
+    }>
+  }
+
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text
+  if (!text) throw new Error('Gemini לא החזיר תשובה תקינה')
+
+  let parsed: { amount?: unknown; description?: unknown; suggestedCategory?: unknown }
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    throw new Error('לא הצלחתי לפענח תשובת Gemini כ-JSON')
+  }
+
+  const amount = normalizeAmount(parsed.amount)
+  const description = typeof parsed.description === 'string' ? parsed.description.trim() : undefined
+  const suggestedCategory =
+    typeof parsed.suggestedCategory === 'string' ? parsed.suggestedCategory.trim() : undefined
+
+  return {
+    amount,
+    description: description || undefined,
+    suggestedCategory: suggestedCategory || undefined,
+  }
+}
+
