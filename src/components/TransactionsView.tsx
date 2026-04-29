@@ -731,7 +731,7 @@ export function TransactionsView({
                     <span className="entry-badge entry-badge-fixed">קבוע-אוטומטי</span>
                   ) : null}
                   {entry.sourceEntry?.installment_progress_label ? (
-                    <span className="entry-badge">{entry.sourceEntry.installment_progress_label}</span>
+                    <span className="entry-badge entry-badge-progress">{entry.sourceEntry.installment_progress_label}</span>
                   ) : null}
                   {isDupExtra ? (
                     <span
@@ -819,7 +819,7 @@ export function TransactionsView({
                       <span className="entry-badge entry-badge-fixed">קבוע-אוטומטי</span>
                     ) : null}
                     {entry.sourceEntry?.installment_progress_label ? (
-                      <span className="entry-badge">{entry.sourceEntry.installment_progress_label}</span>
+                      <span className="entry-badge entry-badge-progress">{entry.sourceEntry.installment_progress_label}</span>
                     ) : null}
                     {isDupExtra ? (
                       <span

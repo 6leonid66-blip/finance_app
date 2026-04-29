@@ -448,7 +448,7 @@ function App() {
               const template = recurringById.get(row.auto_post_template_id)
               if (!template) return null
               return installmentProgressLabel({
-                occurredOnMonthKey: row.occurred_on.slice(0, 7),
+                asOfMonthKey: monthValue.slice(0, 7),
                 template_start_month: template.template_start_month,
                 end_rule: template.end_rule,
                 end_month: template.end_month,
