@@ -58,19 +58,31 @@ export function Dashboard({
   scopeMode,
   onScopeModeChange,
 }: DashboardProps) {
-  const defaultIosHint =
-    typeof window !== 'undefined' &&
-    /iphone|ipad|ipod/i.test(navigator.userAgent) &&
-    !window.matchMedia('(display-mode: standalone)').matches
+  const ua = typeof navigator !== 'undefined' ? navigator.userAgent : ''
+  const isIos = /iphone|ipad|ipod/i.test(ua)
+  const isAndroid = /android/i.test(ua)
+  const isSafari = /safari/i.test(ua) && !/chrome|crios|fxios|edg/i.test(ua)
+  const isFirefox = /firefox|fxios/i.test(ua)
+  const installPlatform: 'ios-safari' | 'ios-other' | 'android-chrome' | 'android-firefox' | 'desktop' | 'unknown' =
+    isIos && isSafari
+      ? 'ios-safari'
+      : isIos
+        ? 'ios-other'
+        : isAndroid && isFirefox
+          ? 'android-firefox'
+          : isAndroid
+            ? 'android-chrome'
+            : typeof window !== 'undefined'
+              ? 'desktop'
+              : 'unknown'
   const isStandaloneDefault =
     typeof window !== 'undefined' &&
     (window.matchMedia('(display-mode: standalone)').matches ||
       (window.navigator as Navigator & { standalone?: boolean }).standalone === true)
   const [deferredPrompt, setDeferredPrompt] = useState<InstallPromptEvent | null>(null)
   const [isStandalone, setIsStandalone] = useState(isStandaloneDefault)
-  const [installHintText, setInstallHintText] = useState(
-    defaultIosHint ? 'iPhone: Share → Add to Home Screen כדי להתקין.' : '',
-  )
+  const [installHintText, setInstallHintText] = useState<string>('')
+  const [installDiagnostic, setInstallDiagnostic] = useState<string>('')
   const [showProfile, setShowProfile] = useState(false)
   const [profileName, setProfileName] = useState(profile.full_name ?? '')
   const [profileAvatarUrl, setProfileAvatarUrl] = useState(profile.avatar_url ?? '')
@@ -126,25 +138,79 @@ export function Dashboard({
     }
   }, [])
 
+  const platformInstructions = (() => {
+    switch (installPlatform) {
+      case 'ios-safari':
+        return 'iPhone/iPad — Safari: לחץ על כפתור השיתוף (⬆) → "Add to Home Screen" (הוסף למסך הבית).'
+      case 'ios-other':
+        return 'באייפון: יש לפתוח את האפליקציה בדפדפן Safari (לא Chrome) ואז לחץ על השיתוף → "Add to Home Screen".'
+      case 'android-chrome':
+        return 'Android — Chrome: פתח את תפריט שלוש הנקודות (⋮) בפינה הימנית העליונה → "Install app" / "התקן אפליקציה" / "Add to Home screen".'
+      case 'android-firefox':
+        return 'Android — Firefox: תפריט ⋮ → "Install" או "Add to Home screen".'
+      case 'desktop':
+        return 'דסקטופ Chrome/Edge: לחץ על אייקון ההתקנה בסרגל הכתובת (משמאל לכוכבית), או תפריט ⋮ → "Install Finance Family App".'
+      default:
+        return 'פתח את האפליקציה בדפדפן עדכני (Chrome / Safari) דרך כתובת ה‑HTTPS ואז השתמש בתפריט הדפדפן להתקנה.'
+    }
+  })()
+
+  const runInstallDiagnostic = async () => {
+    const checks: string[] = []
+    if (typeof window === 'undefined') {
+      setInstallDiagnostic('הסביבה לא תומכת')
+      return
+    }
+    checks.push(window.location.protocol === 'https:' ? '✓ HTTPS' : '✗ לא HTTPS — דרוש לדומיין מאובטח')
+    if ('serviceWorker' in navigator) {
+      try {
+        const reg = await navigator.serviceWorker.getRegistration()
+        if (reg && (reg.active || reg.installing || reg.waiting)) {
+          checks.push('✓ Service Worker רשום')
+        } else {
+          checks.push('✗ Service Worker לא רשום עדיין — רענן את הדף פעם נוספת')
+        }
+      } catch {
+        checks.push('✗ לא ניתן לבדוק Service Worker')
+      }
+    } else {
+      checks.push('✗ הדפדפן לא תומך ב‑Service Worker')
+    }
+    try {
+      const res = await fetch('/manifest.webmanifest', { cache: 'no-store' })
+      checks.push(res.ok ? '✓ Manifest זמין' : '✗ Manifest לא נטען')
+    } catch {
+      checks.push('✗ לא ניתן לטעון Manifest')
+    }
+    if (deferredPrompt) {
+      checks.push('✓ הדפדפן מוכן לפתוח חלון התקנה')
+    } else {
+      checks.push('• הדפדפן לא הציע חלון התקנה אוטומטי — השתמש בתפריט הדפדפן (ראה הוראות מעלה)')
+    }
+    setInstallDiagnostic(checks.join(' · '))
+  }
+
   const handleInstall = async () => {
     if (deferredPrompt) {
-      await deferredPrompt.prompt()
-      const choice = await deferredPrompt.userChoice
-      if (choice.outcome === 'accepted') {
-        setInstallHintText('האפליקציה תותקן כעת.')
+      try {
+        await deferredPrompt.prompt()
+        const choice = await deferredPrompt.userChoice
+        if (choice.outcome === 'accepted') {
+          setInstallHintText('האפליקציה תותקן כעת.')
+        } else {
+          setInstallHintText('ההתקנה בוטלה. ניתן להתקין שוב מהתפריט של הדפדפן.')
+        }
+      } catch {
+        setInstallHintText('שגיאה בפתיחת חלון ההתקנה. נסה דרך תפריט הדפדפן.')
       }
       setDeferredPrompt(null)
       return
     }
-    if (defaultIosHint) {
-      setInstallHintText('iPhone: פתח Safari → Share → Add to Home Screen')
-      return
-    }
     if (typeof window !== 'undefined' && window.location.protocol !== 'https:') {
-      setInstallHintText('התקנת PWA באנדרואיד דורשת HTTPS. פתח דרך הדומיין המאובטח (Vercel).')
-      return
+      setInstallHintText('התקנת PWA דורשת HTTPS. פתח את הקישור הרשמי של Vercel.')
     }
-    setInstallHintText('Android/Chrome: פתח תפריט ⋮ ואז Install app / Add to Home screen')
+    setInstallHintText(platformInstructions)
+    void runInstallDiagnostic()
   }
 
   const submitProfile = async () => {
@@ -428,15 +494,17 @@ export function Dashboard({
         <section className="install-cta card">
           <div>
             <strong>התקן אפליקציה לטלפון</strong>
-            <p className="muted">{installHintText || 'התקנה מהירה למסך הבית באנדרואיד / אייפון.'}</p>
+            <p className="muted">{installHintText || platformInstructions}</p>
+            {installDiagnostic ? <p className="muted small">{installDiagnostic}</p> : null}
             {!deferredPrompt ? (
-              <p className="muted small">אם אין חלון התקנה: Android/Chrome → תפריט ⋮ → Install app.</p>
+              <p className="muted small">
+                טיפ: אם הכפתור לא פותח חלון התקנה — סימן שהדפדפן עדיין לא הציע חלון אוטומטי. בצע את ההוראות שלמעלה (תפריט הדפדפן).
+              </p>
             ) : null}
-            {defaultIosHint ? <p className="muted small">iPhone/Safari → Share → Add to Home Screen.</p> : null}
           </div>
           <div className="row-actions">
             <button type="button" className="btn-primary btn-xs install-btn" onClick={() => void handleInstall()}>
-              הורד אפליקציה
+              {deferredPrompt ? 'התקן אפליקציה' : 'הצג הוראות התקנה'}
             </button>
           </div>
         </section>

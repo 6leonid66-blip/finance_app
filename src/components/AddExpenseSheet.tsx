@@ -5,28 +5,15 @@ import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, isOtherCategory } from '../const
 import type { EntryType, FinancialAccount } from '../types'
 import { analyzeReceiptWithGemini, analyzeSpokenExpenseWithGemini } from '../lib/geminiReceipt'
 import { uploadReceiptAttachment } from '../lib/receiptStorage'
+import { getSpeechRecognitionCtor } from '../lib/speech'
+import type { SpeechRecognitionLike } from '../lib/speech'
 
-type SpeechRecognitionResult = {
-  readonly isFinal: boolean
-  readonly 0: { readonly transcript: string }
-}
-
-type SpeechRecognitionEvent = Event & {
-  readonly results: ArrayLike<SpeechRecognitionResult>
-}
-
-type SpeechRecognitionLike = {
-  lang: string
-  interimResults: boolean
-  maxAlternatives: number
-  onresult: ((event: SpeechRecognitionEvent) => void) | null
-  onerror: ((event: Event) => void) | null
-  onend: (() => void) | null
-  start: () => void
-  stop: () => void
-}
-
-type SpeechRecognitionCtor = new () => SpeechRecognitionLike
+export type AddExpensePrefill = {
+  amount?: string
+  note?: string
+  category?: string
+  customCategory?: string
+} | null
 
 type AddExpenseSheetProps = {
   open: boolean
@@ -38,6 +25,7 @@ type AddExpenseSheetProps = {
   selectedAccountId: string
   onSelectedAccountIdChange: (id: string) => void
   initialType?: EntryType
+  prefill?: AddExpensePrefill
   onSaved: () => void
 }
 
@@ -51,6 +39,7 @@ export function AddExpenseSheet({
   selectedAccountId,
   onSelectedAccountIdChange,
   initialType = 'expense',
+  prefill,
   onSaved,
 }: AddExpenseSheetProps) {
   const [type, setType] = useState<EntryType>(initialType)
@@ -73,8 +62,7 @@ export function AddExpenseSheet({
     if (!open) return
     // eslint-disable-next-line react-hooks/set-state-in-effect -- איפוס טופס בפתיחה
     setType(initialType)
-    setCategory(initialType === 'expense' ? EXPENSE_CATEGORIES[0] : INCOME_CATEGORIES[0])
-    setCustomCategory('')
+    setCustomCategory(prefill?.customCategory ?? '')
     setRecordingVoice(false)
     spokenTextRef.current = ''
     recognitionRef.current?.stop()
@@ -82,7 +70,18 @@ export function AddExpenseSheet({
     setReceiptFile(null)
     setReceiptPreview(null)
     setError(null)
-  }, [open, initialType])
+
+    const baseCategoryList = initialType === 'expense' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES
+    if (prefill?.category && (baseCategoryList as readonly string[]).includes(prefill.category)) {
+      setCategory(prefill.category)
+    } else if (prefill?.customCategory) {
+      setCategory('אחר')
+    } else {
+      setCategory(baseCategoryList[0])
+    }
+    setAmount(prefill?.amount ?? '')
+    setNote(prefill?.note ?? '')
+  }, [open, initialType, prefill])
 
   useEffect(() => {
     return () => {
@@ -230,11 +229,7 @@ export function AddExpenseSheet({
       recognitionRef.current.stop()
       return
     }
-    const w = window as Window & {
-      webkitSpeechRecognition?: SpeechRecognitionCtor
-      SpeechRecognition?: SpeechRecognitionCtor
-    }
-    const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition
+    const Ctor = getSpeechRecognitionCtor()
     if (!Ctor) {
       setError('דפדפן זה לא תומך בהקלטה קולית')
       return
@@ -244,6 +239,7 @@ export function AddExpenseSheet({
     spokenTextRef.current = ''
     recognition.lang = 'he-IL'
     recognition.interimResults = false
+    recognition.continuous = false
     recognition.maxAlternatives = 1
     setRecordingVoice(true)
     setError(null)

@@ -1,22 +1,34 @@
-import { useEffect, useMemo, useState } from 'react'
-import type { FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { FormEvent, PointerEvent as ReactPointerEvent } from 'react'
 import './App.css'
 import { AddExpenseSheet } from './components/AddExpenseSheet'
+import type { AddExpensePrefill } from './components/AddExpenseSheet'
 import { BottomNav } from './components/BottomNav'
 import { Dashboard } from './components/Dashboard'
 import { RecurringTemplatesPanel } from './components/RecurringTemplatesPanel'
 import { TransactionsView } from './components/TransactionsView'
 import { isSupabaseConfigured, supabase } from './supabase'
-import type { AppScreen, FinanceEntry, FinancialAccount, Household, UserProfileView } from './types'
+import type { AppScreen, EntryType, FinanceEntry, FinancialAccount, Household, UserProfileView } from './types'
 import { monthValueToRange } from './lib/month'
 import { getReceiptPublicUrl } from './lib/receiptStorage'
 import { uploadProfileImage } from './lib/profileStorage'
+import { analyzeSpokenExpenseWithGemini } from './lib/geminiReceipt'
+import { getSpeechRecognitionCtor } from './lib/speech'
+import type { SpeechRecognitionLike } from './lib/speech'
+import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from './constants/categories'
 
 function App() {
   const [scopeMode, setScopeMode] = useState<'personal' | 'shared'>('personal')
   const [screen, setScreen] = useState<AppScreen>('transactions')
   const [sheetOpen, setSheetOpen] = useState(false)
   const [sheetType, setSheetType] = useState<'expense' | 'income'>('expense')
+  const [sheetPrefill, setSheetPrefill] = useState<AddExpensePrefill>(null)
+  const [voiceFabType, setVoiceFabType] = useState<EntryType | null>(null)
+  const [voiceFabPhase, setVoiceFabPhase] = useState<'idle' | 'recording' | 'processing'>('idle')
+  const longPressTimerRef = useRef<number | null>(null)
+  const fabRecognitionRef = useRef<SpeechRecognitionLike | null>(null)
+  const fabSpokenTextRef = useRef('')
+  const longPressFiredRef = useRef(false)
   const [sessionUserId, setSessionUserId] = useState<string | null>(null)
   const [sessionUserEmail, setSessionUserEmail] = useState<string | null>(null)
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured)
@@ -617,9 +629,157 @@ function App() {
     await supabase.auth.signOut()
   }
 
-  const openFab = (type: 'expense' | 'income') => {
+  const openFab = (type: 'expense' | 'income', prefill: AddExpensePrefill = null) => {
     setSheetType(type)
+    setSheetPrefill(prefill)
     setSheetOpen(true)
+  }
+
+  const closeFabSheet = () => {
+    setSheetOpen(false)
+    setSheetPrefill(null)
+  }
+
+  const finishVoiceRecording = async (transcript: string, type: EntryType) => {
+    setVoiceFabPhase('processing')
+    let prefill: AddExpensePrefill
+    try {
+      const cats = type === 'expense' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES
+      const result = await analyzeSpokenExpenseWithGemini({
+        spokenText: transcript,
+        categories: cats,
+      })
+      const inList = result.suggestedCategory && (cats as readonly string[]).includes(result.suggestedCategory)
+      prefill = {
+        amount: typeof result.amount === 'number' ? String(result.amount) : '',
+        note: result.description || transcript,
+        category: inList ? result.suggestedCategory : 'אחר',
+        customCategory: inList ? '' : (result.suggestedCategory ?? ''),
+      }
+    } catch {
+      prefill = { note: transcript }
+    }
+    setVoiceFabPhase('idle')
+    setVoiceFabType(null)
+    openFab(type, prefill)
+  }
+
+  const stopFabRecognition = () => {
+    const rec = fabRecognitionRef.current
+    if (!rec) return false
+    try {
+      rec.stop()
+    } catch {
+      /* ignore */
+    }
+    return true
+  }
+
+  const beginFabVoiceRecording = (type: EntryType) => {
+    const Ctor = getSpeechRecognitionCtor()
+    if (!Ctor) {
+      setVoiceFabType(null)
+      setVoiceFabPhase('idle')
+      openFab(type)
+      return
+    }
+    const recognition = new Ctor()
+    fabRecognitionRef.current = recognition
+    fabSpokenTextRef.current = ''
+    recognition.lang = 'he-IL'
+    recognition.interimResults = true
+    recognition.continuous = true
+    recognition.maxAlternatives = 1
+    recognition.onresult = (event) => {
+      let combined = ''
+      for (let i = 0; i < event.results.length; i++) {
+        combined += event.results[i][0].transcript
+      }
+      fabSpokenTextRef.current = combined.trim()
+    }
+    recognition.onerror = () => {
+      fabRecognitionRef.current = null
+      setVoiceFabType(null)
+      setVoiceFabPhase('idle')
+      openFab(type)
+    }
+    recognition.onend = () => {
+      const transcript = fabSpokenTextRef.current.trim()
+      fabRecognitionRef.current = null
+      fabSpokenTextRef.current = ''
+      if (!transcript) {
+        setVoiceFabType(null)
+        setVoiceFabPhase('idle')
+        openFab(type)
+        return
+      }
+      void finishVoiceRecording(transcript, type)
+    }
+    setVoiceFabType(type)
+    setVoiceFabPhase('recording')
+    try {
+      recognition.start()
+    } catch {
+      fabRecognitionRef.current = null
+      setVoiceFabType(null)
+      setVoiceFabPhase('idle')
+      openFab(type)
+    }
+  }
+
+  const clearLongPressTimer = () => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
+    }
+  }
+
+  const handleFabPointerDown = (type: EntryType) => (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.button !== undefined && event.button !== 0) return
+    if (voiceFabPhase !== 'idle') return
+    longPressFiredRef.current = false
+    clearLongPressTimer()
+    try {
+      event.currentTarget.setPointerCapture?.(event.pointerId)
+    } catch {
+      /* ignore capture failures */
+    }
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressTimerRef.current = null
+      longPressFiredRef.current = true
+      beginFabVoiceRecording(type)
+    }, 380)
+  }
+
+  const handleFabPointerUp = (type: EntryType) => (event: ReactPointerEvent<HTMLButtonElement>) => {
+    try {
+      event.currentTarget.releasePointerCapture?.(event.pointerId)
+    } catch {
+      /* ignore capture failures */
+    }
+    if (fabRecognitionRef.current) {
+      stopFabRecognition()
+      return
+    }
+    if (longPressTimerRef.current !== null) {
+      clearLongPressTimer()
+      if (!longPressFiredRef.current) openFab(type)
+    }
+  }
+
+  const handleFabPointerCancel = () => (event: ReactPointerEvent<HTMLButtonElement>) => {
+    try {
+      event.currentTarget.releasePointerCapture?.(event.pointerId)
+    } catch {
+      /* ignore capture failures */
+    }
+    if (longPressTimerRef.current !== null) {
+      clearLongPressTimer()
+      return
+    }
+    if (fabRecognitionRef.current) {
+      stopFabRecognition()
+    }
   }
 
   const refreshMonth = () => {
@@ -889,17 +1049,50 @@ function App() {
           <BottomNav active={screen} onChange={setScreen} />
           {showFab ? (
             <div className="fab-wrap">
-              <button type="button" className="fab fab-secondary" onClick={() => openFab('income')}>
-                + הכנסה
+              <button
+                type="button"
+                className={`fab fab-secondary${voiceFabType === 'income' ? ` fab-${voiceFabPhase}` : ''}`}
+                onPointerDown={handleFabPointerDown('income')}
+                onPointerUp={handleFabPointerUp('income')}
+                onPointerCancel={handleFabPointerCancel()}
+                onPointerLeave={handleFabPointerCancel()}
+                onContextMenu={(e) => e.preventDefault()}
+                aria-label="הוספת הכנסה — לחיצה ארוכה להקלטה קולית"
+              >
+                {voiceFabType === 'income' && voiceFabPhase === 'recording'
+                  ? '🎙️ דבר…'
+                  : voiceFabType === 'income' && voiceFabPhase === 'processing'
+                    ? '⏳ מעבד…'
+                    : '+ הכנסה'}
               </button>
-              <button type="button" className="fab" onClick={() => openFab('expense')}>
-                + הוצאה
+              <button
+                type="button"
+                className={`fab${voiceFabType === 'expense' ? ` fab-${voiceFabPhase}` : ''}`}
+                onPointerDown={handleFabPointerDown('expense')}
+                onPointerUp={handleFabPointerUp('expense')}
+                onPointerCancel={handleFabPointerCancel()}
+                onPointerLeave={handleFabPointerCancel()}
+                onContextMenu={(e) => e.preventDefault()}
+                aria-label="הוספת הוצאה — לחיצה ארוכה להקלטה קולית"
+              >
+                {voiceFabType === 'expense' && voiceFabPhase === 'recording'
+                  ? '🎙️ דבר…'
+                  : voiceFabType === 'expense' && voiceFabPhase === 'processing'
+                    ? '⏳ מעבד…'
+                    : '+ הוצאה'}
               </button>
+            </div>
+          ) : null}
+          {voiceFabPhase !== 'idle' ? (
+            <div className="fab-voice-hint" role="status" aria-live="polite">
+              {voiceFabPhase === 'recording'
+                ? 'מקליט… שחרר את הכפתור כדי לסיים'
+                : 'מנתח את ההקלטה ופותח טופס לאישור…'}
             </div>
           ) : null}
           <AddExpenseSheet
             open={sheetOpen}
-            onClose={() => setSheetOpen(false)}
+            onClose={closeFabSheet}
             householdId={household.id}
             sessionUserId={sessionUserId}
             selectedMonth={selectedMonth}
@@ -907,6 +1100,7 @@ function App() {
             selectedAccountId={selectedAccountId}
             onSelectedAccountIdChange={setSelectedAccountId}
             initialType={sheetType}
+            prefill={sheetPrefill}
             onSaved={refreshMonth}
           />
         </>
