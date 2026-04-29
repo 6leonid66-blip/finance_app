@@ -126,6 +126,30 @@ export function TransactionsView({
     return allFeedItems
   }, [allFeedItems, entryFilter])
 
+  const filteredTotals = useMemo(() => {
+    const expenseTotal = filteredEntries
+      .filter((e) => e.type === 'expense')
+      .reduce((sum, e) => sum + e.amount, 0)
+    const incomeTotal = filteredEntries
+      .filter((e) => e.type === 'income')
+      .reduce((sum, e) => sum + e.amount, 0)
+    return {
+      count: filteredEntries.length,
+      expenseTotal,
+      incomeTotal,
+      balance: incomeTotal - expenseTotal,
+    }
+  }, [filteredEntries])
+
+  const monthLabel = useMemo(() => {
+    const [y, m] = selectedMonth.split('-').map(Number)
+    if (!y || !m) return selectedMonth
+    return new Date(y, m - 1, 1).toLocaleDateString('he-IL', { month: 'long', year: 'numeric' })
+  }, [selectedMonth])
+
+  const scopeLabel = scopeMode === 'shared' ? 'משותף' : 'אישי'
+  const totalsSubtitle = `${scopeLabel} · ${monthLabel} · ${filteredTotals.count.toLocaleString()} תנועות`
+
   useEffect(() => {
     return () => {
       if (receiptPreview) URL.revokeObjectURL(receiptPreview)
@@ -367,7 +391,6 @@ export function TransactionsView({
 
   return (
     <div className="screen-pad">
-      <h2 className="screen-title">תנועות החודש</h2>
       {loading ? <p className="muted">טוען…</p> : null}
 
       <article className="card card-form bank-feed-head">
@@ -423,8 +446,52 @@ export function TransactionsView({
         </div>
       </article>
 
+      <article className="card tx-totals-bar">
+        {entryFilter === 'expenses' ? (
+          <div className="tx-totals-row">
+            <span className="tx-totals-label">סך הכל הוצאות</span>
+            <strong className="tx-totals-value amount-expense">
+              {filteredTotals.expenseTotal.toLocaleString()} ₪
+            </strong>
+          </div>
+        ) : null}
+        {entryFilter === 'income' ? (
+          <div className="tx-totals-row">
+            <span className="tx-totals-label">סך הכל הכנסות</span>
+            <strong className="tx-totals-value amount-income">
+              {filteredTotals.incomeTotal.toLocaleString()} ₪
+            </strong>
+          </div>
+        ) : null}
+        {entryFilter === 'all' ? (
+          <>
+            <div className="tx-totals-row">
+              <span className="tx-totals-label">סך הכל הכנסות</span>
+              <strong className="tx-totals-value amount-income">
+                {filteredTotals.incomeTotal.toLocaleString()} ₪
+              </strong>
+            </div>
+            <div className="tx-totals-row">
+              <span className="tx-totals-label">סך הכל הוצאות</span>
+              <strong className="tx-totals-value amount-expense">
+                {filteredTotals.expenseTotal.toLocaleString()} ₪
+              </strong>
+            </div>
+            <div className="tx-totals-row tx-totals-balance">
+              <span className="tx-totals-label">יתרה</span>
+              <strong
+                className={`tx-totals-value ${filteredTotals.balance >= 0 ? 'amount-income' : 'amount-expense'}`}
+              >
+                {filteredTotals.balance.toLocaleString()} ₪
+              </strong>
+            </div>
+          </>
+        ) : null}
+        <p className="muted small tx-totals-sub">{totalsSubtitle}</p>
+      </article>
+
       <article className="card card-form">
-        <h3 className="card-heading">טבלת תנועות בנקאית (תנועות אמת בלבד)</h3>
+        <h3 className="card-heading">תנועות החודש</h3>
         <ul className="tx-mobile-list">
           {filteredEntries.map((entry) => (
             <li key={`m-${entry.id}`} className="tx-mobile-item">
@@ -440,15 +507,16 @@ export function TransactionsView({
                 {entry.accountName ? <span>{entry.accountName}</span> : null}
               </div>
               {entry.note ? <p className="tx-mobile-note">{entry.note}</p> : null}
-              <div className="entry-badges">
-                <span className="entry-badge">בפועל</span>
-                {entry.sourceEntry?.is_auto_from_recurring ? (
-                  <span className="entry-badge entry-badge-fixed">קבוע-אוטומטי</span>
-                ) : null}
-                {entry.sourceEntry?.installment_progress_label ? (
-                  <span className="entry-badge">{entry.sourceEntry.installment_progress_label}</span>
-                ) : null}
-              </div>
+              {entry.sourceEntry?.is_auto_from_recurring || entry.sourceEntry?.installment_progress_label ? (
+                <div className="entry-badges">
+                  {entry.sourceEntry?.is_auto_from_recurring ? (
+                    <span className="entry-badge entry-badge-fixed">קבוע-אוטומטי</span>
+                  ) : null}
+                  {entry.sourceEntry?.installment_progress_label ? (
+                    <span className="entry-badge">{entry.sourceEntry.installment_progress_label}</span>
+                  ) : null}
+                </div>
+              ) : null}
               <div className="row-actions">
                 {entry.sourceEntry ? (
                   <button type="button" className="btn-secondary btn-xs" onClick={() => beginEdit(entry.sourceEntry!)}>
@@ -491,14 +559,16 @@ export function TransactionsView({
                     {entry.amount.toLocaleString()} ₪
                   </td>
                   <td data-label="סטטוס">
-                    <span className="entry-badge">בפועל</span>
                     {entry.sourceEntry?.is_auto_from_recurring ? (
                       <span className="entry-badge entry-badge-fixed">קבוע-אוטומטי</span>
                     ) : null}
                     {entry.sourceEntry?.installment_progress_label ? (
                       <span className="entry-badge">{entry.sourceEntry.installment_progress_label}</span>
                     ) : null}
-                    {entry.sourceEntry?.planned ? <span className="entry-badge">מתוכנן</span> : null}
+                    {!entry.sourceEntry?.is_auto_from_recurring &&
+                    !entry.sourceEntry?.installment_progress_label ? (
+                      <span className="muted small">—</span>
+                    ) : null}
                   </td>
                   <td data-label="פעולות">
                     <div className="row-actions">

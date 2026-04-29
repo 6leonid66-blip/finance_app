@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { supabase } from '../supabase'
 import { ALL_PLAN_CATEGORIES, isOtherCategory } from '../constants/categories'
@@ -17,7 +17,6 @@ type RecurringTemplatesPanelProps = {
   onTemplatesChanged: () => void
   scopeMode: 'personal' | 'shared'
   onScopeModeChange: (scope: 'personal' | 'shared') => void
-  visibleCategories: string[] | null
 }
 
 export function RecurringTemplatesPanel({
@@ -26,7 +25,6 @@ export function RecurringTemplatesPanel({
   onTemplatesChanged,
   scopeMode,
   onScopeModeChange,
-  visibleCategories,
 }: RecurringTemplatesPanelProps) {
   const [list, setList] = useState<RecurringTemplate[]>([])
   const [loading, setLoading] = useState(true)
@@ -62,11 +60,35 @@ export function RecurringTemplatesPanel({
   }
 
   const resolvedCategory = isOtherCategory(category) ? customCategory.trim() || 'אחר' : category
-  const filteredList = useMemo(() => {
-    if (!visibleCategories || !visibleCategories.length) return list
-    const visibleSet = new Set(visibleCategories)
-    return list.filter((row) => visibleSet.has(row.category))
-  }, [list, visibleCategories])
+
+  const formatMonthLabel = (monthValue: string) => {
+    const [y, m] = monthValue.split('-').map(Number)
+    if (!y || !m) return monthValue
+    return new Date(y, m - 1, 1).toLocaleDateString('he-IL', { month: 'short', year: 'numeric' })
+  }
+
+  const describeAmount = (row: RecurringTemplate) => {
+    if (row.mode === 'fixed_amount') {
+      return { text: `${Number(row.default_amount).toLocaleString()} ₪`, variable: false }
+    }
+    return { text: 'תקציב משתנה', variable: true }
+  }
+
+  const describePeriod = (row: RecurringTemplate) => {
+    if (row.end_rule === 'unlimited') return 'ללא הגבלה'
+    if (row.end_rule === 'until_month') {
+      const endMonthValue = row.end_month?.slice(0, 7)
+      return endMonthValue ? `עד ${formatMonthLabel(endMonthValue)}` : 'עד חודש שייקבע'
+    }
+    const total = row.max_installments ?? 0
+    if (!total) return 'תשלומים'
+    const startValue = row.template_start_month?.slice(0, 7)
+    const current =
+      startValue && selectedMonth
+        ? Math.min(Math.max(monthDiffInclusive(startValue, selectedMonth), 1), total)
+        : 1
+    return `תשלום ${current} מתוך ${total}`
+  }
 
   const load = async () => {
     if (!supabase) return
@@ -99,7 +121,7 @@ export function RecurringTemplatesPanel({
     if (!supabase) return
     const amt = Number(defaultAmount || 0)
     if (mode === 'fixed_amount' && (!amt || amt <= 0)) {
-      setError('בקבוע עם סכום קבוע חייב סכום חיובי')
+      setError('יש להזין סכום חודשי חיובי')
       return
     }
     if (
@@ -107,7 +129,7 @@ export function RecurringTemplatesPanel({
       (!Number(maxInstallments || monthDiffInclusive(startMonth, endMonth)) ||
         Number(maxInstallments || monthDiffInclusive(startMonth, endMonth)) <= 0)
     ) {
-      setError('יש להזין מספר תשלומים חוקי')
+      setError('מספר התשלומים חייב להיות לפחות 1')
       return
     }
     if (endRule !== 'unlimited' && !endMonth) {
@@ -153,21 +175,6 @@ export function RecurringTemplatesPanel({
   const toggleActive = async (row: RecurringTemplate) => {
     if (!supabase) return
     await supabase.from('recurring_templates').update({ active: !row.active }).eq('id', row.id)
-    await load()
-    onTemplatesChanged()
-  }
-
-  const toggleAutoPost = async (row: RecurringTemplate) => {
-    if (!supabase) return
-    setError(null)
-    const { error: toggleError } = await supabase
-      .from('recurring_templates')
-      .update({ auto_post_as_actual: !row.auto_post_as_actual })
-      .eq('id', row.id)
-    if (toggleError) {
-      setError(toggleError.message)
-      return
-    }
     await load()
     onTemplatesChanged()
   }
@@ -218,7 +225,7 @@ export function RecurringTemplatesPanel({
     if (!supabase || !editingId) return
     const amt = Number(defaultAmount || 0)
     if (mode === 'fixed_amount' && (!amt || amt <= 0)) {
-      setError('בקבוע עם סכום קבוע חייב סכום חיובי')
+      setError('יש להזין סכום חודשי חיובי')
       return
     }
     setSaving(true)
@@ -256,9 +263,10 @@ export function RecurringTemplatesPanel({
 
   return (
     <div className="screen-pad">
-      <h2 className="screen-title">הוצאות והכנסות קבועות</h2>
-      <p className="panel-intro">ניהול קבועים מלא עם כללי תוקף, תשלומים וסנכרון אוטומטי לתחזית החכמה.</p>
-      <p className="muted small">חודש נוכחי לבדיקה: {selectedMonth}</p>
+      <h2 className="screen-title">קבועים</h2>
+      <p className="panel-intro muted">
+        הכנסות והוצאות שחוזרות כל חודש — מתעדכנות אוטומטית בתחזית ובפועל.
+      </p>
       <div className="scope-switch card">
         <strong>תצוגה</strong>
         <div className="segmented">
@@ -282,79 +290,132 @@ export function RecurringTemplatesPanel({
       {loading ? <p className="muted">טוען…</p> : null}
       {error ? <p className="sheet-error">{error}</p> : null}
 
-      <article className="card card-form toolbar-card recurring-toolbar">
-        <div className="toolbar-actions">
-          <strong>קבועים קיימים</strong>
+      <article className="card card-form">
+        <div className="card-heading-row">
+          <h3 className="card-heading">קבועים</h3>
           <button type="button" className="btn-secondary btn-xs" onClick={() => setShowCreate(true)}>
-            הוסף חדש
+            + הוסף קבוע
           </button>
         </div>
-      </article>
 
-      <article className="card card-form">
-        <h3 className="card-heading">קבועים קיימים</h3>
-        <div className="bank-table-wrap compact-table-wrap">
+        <ul className="recurring-mobile-list">
+          {list.map((row) => {
+            const amount = describeAmount(row)
+            const period = describePeriod(row)
+            return (
+              <li
+                key={`m-${row.id}`}
+                className={`recurring-mobile-item${row.active ? '' : ' inactive'}`}
+              >
+                <div className="recurring-mobile-top">
+                  <span className="recurring-mobile-title">
+                    {row.label?.trim() || row.category}
+                    {row.label?.trim() ? <span className="muted small"> · {row.category}</span> : null}
+                  </span>
+                  <span
+                    className={`recurring-mobile-amount ${
+                      amount.variable
+                        ? 'amount-variable'
+                        : row.direction === 'income'
+                          ? 'amount-income'
+                          : 'amount-expense'
+                    }`}
+                  >
+                    {amount.text}
+                    {!amount.variable ? <span className="muted small"> / חודש</span> : null}
+                  </span>
+                </div>
+                <div className="recurring-mobile-meta">
+                  <span>{row.direction === 'income' ? 'הכנסה' : 'הוצאה'}</span>
+                  <span>·</span>
+                  <span>{period}</span>
+                  <button
+                    type="button"
+                    className={`pill-toggle ${row.active ? 'pill-active' : 'pill-inactive'}`}
+                    onClick={() => void toggleActive(row)}
+                    aria-label={row.active ? 'השבת קבוע' : 'הפעל קבוע'}
+                  >
+                    {row.active ? 'פעיל' : 'מושבת'}
+                  </button>
+                </div>
+                <div className="recurring-mobile-actions">
+                  <button type="button" className="btn-secondary btn-xs" onClick={() => startEdit(row)}>
+                    ערוך
+                  </button>
+                  <button type="button" className="btn-danger btn-xs" onClick={() => void remove(row.id)}>
+                    מחק
+                  </button>
+                </div>
+              </li>
+            )
+          })}
+          {!list.length && !loading ? (
+            <li className="empty">אין כאן קבועים. לחץ על "הוסף קבוע" כדי להתחיל.</li>
+          ) : null}
+        </ul>
+
+        <div className="bank-table-wrap recurring-table-wrap compact-table-wrap">
           <table className="bank-table compact-table">
             <thead>
               <tr>
-                <th>קטגוריה</th>
+                <th>שם / קטגוריה</th>
                 <th>סוג</th>
-                <th>שיטה</th>
-                <th>סיום</th>
-                <th>אוטומטי לפועל</th>
-                <th>תשלומים</th>
-                <th>סטטוס</th>
+                <th>סכום חודשי</th>
+                <th>תקופה</th>
+                <th>פעיל</th>
                 <th>פעולות</th>
               </tr>
             </thead>
             <tbody>
-              {filteredList.map((row) => (
-                <tr key={row.id} className={row.active ? '' : 'inactive'}>
-                  <td data-label="קטגוריה">
-                    {row.category}
-                    {row.label ? ` · ${row.label}` : ''}
-                  </td>
-                  <td data-label="סוג">{row.direction === 'income' ? 'הכנסה' : 'הוצאה'}</td>
-                  <td data-label="שיטה">
-                    {row.mode === 'fixed_amount' ? `${Number(row.default_amount).toLocaleString()} ₪` : 'תקציב משתנה'}
-                  </td>
-                  <td data-label="סיום">
-                    {row.end_rule === 'unlimited'
-                      ? 'ללא הגבלה'
-                      : row.end_rule === 'until_month'
-                        ? `עד ${row.end_month?.slice(0, 7) ?? '-'}`
-                        : `${row.max_installments ?? 0} תשלומים`}
-                  </td>
-                  <td data-label="אוטומטי לפועל">
-                    <button type="button" className="btn-secondary btn-xs" onClick={() => void toggleAutoPost(row)}>
-                      {row.auto_post_as_actual ? 'פעיל' : 'כבוי'}
-                    </button>
-                  </td>
-                  <td data-label="תשלומים">
-                    {row.end_rule === 'fixed_installments' && row.max_installments
-                      ? `מתוך ${row.max_installments}`
-                      : '—'}
-                  </td>
-                  <td data-label="סטטוס">{row.active ? 'פעיל' : 'מושבת'}</td>
-                  <td data-label="פעולות">
-                    <div className="row-actions row-actions-compact">
-                      <button type="button" className="btn-secondary btn-xs" onClick={() => startEdit(row)}>
-                        ערוך
+              {list.map((row) => {
+                const amount = describeAmount(row)
+                const period = describePeriod(row)
+                return (
+                  <tr key={row.id} className={row.active ? '' : 'inactive'}>
+                    <td data-label="שם / קטגוריה">
+                      {row.label?.trim() || row.category}
+                      {row.label?.trim() ? <span className="muted small"> · {row.category}</span> : null}
+                    </td>
+                    <td data-label="סוג">{row.direction === 'income' ? 'הכנסה' : 'הוצאה'}</td>
+                    <td
+                      data-label="סכום חודשי"
+                      className={
+                        amount.variable
+                          ? 'amount-variable'
+                          : row.direction === 'income'
+                            ? 'amount-income'
+                            : 'amount-expense'
+                      }
+                    >
+                      {amount.text}
+                    </td>
+                    <td data-label="תקופה">{period}</td>
+                    <td data-label="פעיל">
+                      <button
+                        type="button"
+                        className={`pill-toggle ${row.active ? 'pill-active' : 'pill-inactive'}`}
+                        onClick={() => void toggleActive(row)}
+                      >
+                        {row.active ? 'פעיל' : 'מושבת'}
                       </button>
-                      <button type="button" className="btn-secondary btn-xs" onClick={() => void toggleActive(row)}>
-                        {row.active ? 'השבת' : 'הפעל'}
-                      </button>
-                      <button type="button" className="btn-danger btn-xs" onClick={() => void remove(row.id)}>
-                        מחק
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {!filteredList.length && !loading ? (
+                    </td>
+                    <td data-label="פעולות">
+                      <div className="row-actions row-actions-compact">
+                        <button type="button" className="btn-secondary btn-xs" onClick={() => startEdit(row)}>
+                          ערוך
+                        </button>
+                        <button type="button" className="btn-danger btn-xs" onClick={() => void remove(row.id)}>
+                          מחק
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+              {!list.length && !loading ? (
                 <tr>
-                  <td colSpan={8} className="empty">
-                    אין קבועים להצגה בתצוגה הנוכחית.
+                  <td colSpan={6} className="empty">
+                    אין כאן קבועים. לחץ על "הוסף קבוע" כדי להתחיל.
                   </td>
                 </tr>
               ) : null}
@@ -372,7 +433,7 @@ export function RecurringTemplatesPanel({
           }}
         >
           <article className="card card-form modal-card" onClick={(e) => e.stopPropagation()}>
-            <h3 className="card-heading">{editingId ? 'עריכת תבנית' : 'הוספת תבנית'}</h3>
+            <h3 className="card-heading">{editingId ? 'עריכת קבוע' : 'קבוע חדש'}</h3>
             <form onSubmit={editingId ? saveEdit : addTemplate} className="stack tight">
             <div className="segmented">
               <button
@@ -432,11 +493,14 @@ export function RecurringTemplatesPanel({
                 checked={autoPostAsActual}
                 onChange={(e) => setAutoPostAsActual(e.target.checked)}
               />
-              הכנס אוטומטית גם לפועל
+              רישום אוטומטי בכל חודש
             </label>
+            <p className="muted small">
+              הקבוע ייווצר כתנועה אמיתית בכל 1 לחודש בלי שצריך לאשר ידנית.
+            </p>
             {mode === 'fixed_amount' ? (
               <label>
-                סכום חודשי קבוע (₪)
+                סכום חודשי (₪)
                 <input
                   type="number"
                   min={0}
@@ -447,7 +511,7 @@ export function RecurringTemplatesPanel({
                 />
               </label>
             ) : (
-              <p className="muted small">בתקציב משתנה הסכום המתוכנן יועתק מהחודש הקודם כשפותחים חודש חדש.</p>
+              <p className="muted small">בתקציב משתנה הסכום החודשי יועתק מהחודש הקודם.</p>
             )}
             <label>
               מתחיל מחודש
@@ -520,7 +584,7 @@ export function RecurringTemplatesPanel({
                   />
                 </label>
                 <p className="muted small">
-                  אפשר לעדכן או את מספר התשלומים או את חודש הסיום — המערכת תחשב את השדה השני.
+                  ניתן לעדכן את אחד מהשניים — השני יחושב אוטומטית.
                 </p>
               </>
             ) : null}
@@ -536,7 +600,7 @@ export function RecurringTemplatesPanel({
                   ביטול
                 </button>
                 <button type="submit" className="btn-primary" disabled={saving}>
-                  {saving ? 'שומר…' : editingId ? 'שמור שינויים' : 'הוסף תבנית'}
+                  {saving ? 'שומר…' : editingId ? 'שמור שינויים' : 'הוסף קבוע'}
                 </button>
               </div>
             </form>

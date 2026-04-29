@@ -1022,7 +1022,6 @@ function App() {
                 onTemplatesChanged={refreshMonth}
                 scopeMode={scopeMode}
                 onScopeModeChange={setScopeMode}
-                visibleCategories={null}
               />
             ) : null}
 

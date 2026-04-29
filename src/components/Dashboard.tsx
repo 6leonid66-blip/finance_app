@@ -421,7 +421,7 @@ export function Dashboard({
         <div className="dashboard-top">
           <div>
             <h1 className="dashboard-title">הבית שלנו</h1>
-            <p className="dashboard-sub">סיכום חודשי — תחזית חכמה מול בפועל</p>
+            <p className="dashboard-sub">סיכום חודשי — תחזית מול ביצוע</p>
           </div>
           <div className="row-actions">
             <button
@@ -514,7 +514,7 @@ export function Dashboard({
 
       <div className="kpi-grid">
         <article className="kpi-card kpi-income">
-          <span className="kpi-label">הכנסות בפועל (תנועות אמיתיות)</span>
+          <span className="kpi-label">הכנסות החודש</span>
           <strong className="kpi-value">{actualIncome.toLocaleString()} ₪</strong>
           <span className="kpi-meta">תחזית חכמה: {plannedIncome.toLocaleString()} ₪</span>
           <div className="progress-track" aria-hidden>
@@ -529,7 +529,7 @@ export function Dashboard({
         </article>
 
         <article className="kpi-card kpi-expense">
-          <span className="kpi-label">הוצאות בפועל (תנועות אמיתיות)</span>
+          <span className="kpi-label">הוצאות החודש</span>
           <strong className="kpi-value">{actualExpense.toLocaleString()} ₪</strong>
           <span className="kpi-meta">תחזית חכמה: {plannedExpense.toLocaleString()} ₪</span>
           <div className="progress-track" aria-hidden>
@@ -550,7 +550,7 @@ export function Dashboard({
           <strong>{balanceActual.toLocaleString()} ₪</strong>
         </div>
         <div className="balance-card balance-muted">
-          <span>יתרת תחזית חכמה</span>
+          <span>יתרה צפויה</span>
           <strong>{balancePlanned.toLocaleString()} ₪</strong>
         </div>
       </div>
@@ -565,9 +565,7 @@ export function Dashboard({
             תחזית הוצאה לחודש: {plannedExpense.toLocaleString()} ₪ ({forecastSummary.expenseDelta >= 0 ? '+' : ''}
             {forecastSummary.expenseDelta.toLocaleString()} מול חודש קודם)
           </p>
-          <p className="muted">
-            בסיס התחזית: הרגלי החודשים האחרונים + החודש הקודם, בלי הזנה ידנית של תכנון.
-          </p>
+          <p className="muted">בסיס התחזית: הרגלי החודשים האחרונים + החודש הקודם.</p>
         </div>
       </section>
       <section className="card expense-distribution">
