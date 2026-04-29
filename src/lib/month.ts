@@ -1,16 +1,34 @@
 /** monthValue: YYYY-MM from <input type="month"> */
+
+const pad2 = (n: number) => String(n).padStart(2, '0')
+
+/** First calendar day YYYY-MM-01 — never uses toISOString() (avoids UTC shifting the calendar day vs local). */
 export function monthValueToFirstDay(monthValue: string) {
-  const [y, m] = monthValue.split('-').map(Number)
-  return new Date(y, m - 1, 1).toISOString().slice(0, 10)
+  const key = monthValue.trim().slice(0, 7)
+  const [y, m] = key.split('-').map(Number)
+  if (!Number.isFinite(y) || !Number.isFinite(m) || m < 1 || m > 12) {
+    return key.length >= 7 ? `${key}-01` : `${new Date().getFullYear()}-${pad2(new Date().getMonth() + 1)}-01`
+  }
+  return `${y}-${pad2(m)}-01`
 }
 
+/**
+ * inclusive start/end calendar dates for a month picker value.
+ * Dates are formatted as local yyyy-mm-dd (no UTC edge shift via toISOString).
+ */
 export function monthValueToRange(monthValue: string) {
-  const [y, m] = monthValue.split('-').map(Number)
-  const start = new Date(y, m - 1, 1)
-  const end = new Date(y, m, 0)
+  const startDate = monthValueToFirstDay(monthValue).slice(0, 10)
+  const matched = startDate.match(/^(\d{4})-(\d{2})-01$/)
+  if (!matched) {
+    return { startDate, endDate: startDate, monthDate: startDate }
+  }
+  const y = Number(matched[1])
+  const mNum = Number(matched[2])
+  const last = new Date(y, mNum, 0)
+  const endDate = `${last.getFullYear()}-${pad2(last.getMonth() + 1)}-${pad2(last.getDate())}`
   return {
-    startDate: start.toISOString().slice(0, 10),
-    endDate: end.toISOString().slice(0, 10),
-    monthDate: start.toISOString().slice(0, 10),
+    startDate,
+    endDate,
+    monthDate: startDate,
   }
 }

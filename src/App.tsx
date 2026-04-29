@@ -17,6 +17,7 @@ import { getReceiptPublicUrl } from './lib/receiptStorage'
 import { uploadProfileImage } from './lib/profileStorage'
 import { analyzeSpokenExpenseWithGemini } from './lib/geminiReceipt'
 import { installmentProgressLabel } from './lib/recurringProgress'
+import { monthValueToFirstDay } from './lib/month'
 import { getSpeechRecognitionCtor } from './lib/speech'
 import type { SpeechRecognitionLike } from './lib/speech'
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from './constants/categories'
@@ -798,25 +799,33 @@ function App() {
     if (household) void loadMonthlyData(household.id, selectedMonth)
   }
 
-  // After a recurring template is created/edited/toggled/deleted we must
-  // make sure the *current real-world month* gets re-synced with the latest
-  // template state, even if the user is currently browsing a past or future
-  // month. The DB function is forward-only (no-op for past months), so the
-  // current month is the one that matters for invariant "current must
-  // reflect the new value" — past months stay frozen.
+  // After a recurring template change, re-run auto-post for:
+  // - the month the user is viewing in the picker (so transactions match that screen)
+  // - the calendar "today" month when it differs (so the live month stays in sync too).
+  // The DB function is forward-only (no-op for past p_month), per migration.
   const refreshAfterTemplateChange = () => {
     if (!household || !supabase) return
-    const now = new Date()
-    const currentMonthFirstDay = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
     const householdId = household.id
+    const pad2 = (n: number) => String(n).padStart(2, '0')
+    const now = new Date()
+    const currentMonthFirstDay = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-01`
+    const viewerMonthFirstDay = monthValueToFirstDay(selectedMonth)
+    const monthsToSync = new Set<string>([viewerMonthFirstDay, currentMonthFirstDay])
+
     void (async () => {
       try {
-        const { error: rpcErr } = await supabase.rpc('ensure_auto_post_transactions_from_templates', {
-          p_household: householdId,
-          p_month: currentMonthFirstDay,
-        })
-        if (rpcErr) {
-          setRecurringRpcError(rpcErr.message ?? 'RPC failed')
+        let firstErr: Error | null = null
+        for (const p_month of monthsToSync) {
+          const { error: rpcErr } = await supabase.rpc('ensure_auto_post_transactions_from_templates', {
+            p_household: householdId,
+            p_month,
+          })
+          if (rpcErr && !firstErr) {
+            firstErr = new Error(rpcErr.message ?? 'RPC failed')
+          }
+        }
+        if (firstErr) {
+          setRecurringRpcError(firstErr.message)
         } else {
           setRecurringRpcError(null)
         }
