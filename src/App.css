@@ -1059,3 +1059,34 @@ input[type='month'] {
     padding-bottom: calc(12px + env(safe-area-inset-bottom));
   }
 }
+
+@media (min-width: 1024px) {
+  .app-main {
+    max-width: none;
+    margin: 0;
+    padding: 16px 24px 110px;
+  }
+
+  .dashboard,
+  .screen-pad {
+    width: 100%;
+  }
+
+  .bank-table-wrap {
+    overflow: auto;
+    resize: horizontal;
+    min-width: 680px;
+    max-width: 100%;
+  }
+
+  .bank-table {
+    min-width: 980px;
+    table-layout: auto;
+  }
+
+  .bottom-nav,
+  .fab-wrap,
+  .sheet {
+    max-width: none;
+  }
+}

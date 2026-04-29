@@ -326,6 +326,26 @@ export function TransactionsView({
     }
   }
 
+  const removeEntry = async (entry: FinanceEntry) => {
+    if (!supabase) return
+    const confirmText = entry.is_auto_from_recurring
+      ? 'זו תנועה שנוצרה אוטומטית מקבוע. מחיקה כאן תמחק רק את התנועה בחודש הזה, ולא את הקבוע עצמו. להמשיך?'
+      : 'למחוק את התנועה הזו?'
+    if (!window.confirm(confirmText)) return
+    setStatus(null)
+    try {
+      if (entry.receipt_path) {
+        await deleteReceiptAttachment(entry.receipt_path)
+      }
+      const { error } = await supabase.from('transactions').delete().eq('id', entry.id)
+      if (error) throw error
+      setStatus('התנועה נמחקה')
+      onRefresh()
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : 'מחיקה נכשלה')
+    }
+  }
+
   return (
     <div className="screen-pad">
       <h2 className="screen-title">תנועות החודש</h2>
@@ -411,6 +431,17 @@ export function TransactionsView({
                           }}
                         >
                           ערוך
+                        </button>
+                      ) : null}
+                      {entry.sourceEntry ? (
+                        <button
+                          type="button"
+                          className="btn-danger btn-xs"
+                          onClick={() => {
+                            if (entry.sourceEntry) void removeEntry(entry.sourceEntry)
+                          }}
+                        >
+                          מחק
                         </button>
                       ) : null}
                       {entry.sourceEntry?.receipt_url ? (
