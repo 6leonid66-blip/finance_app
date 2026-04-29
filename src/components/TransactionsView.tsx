@@ -129,10 +129,18 @@ export function TransactionsView({
   }
 
   const filteredEntries = useMemo(() => {
-    if (entryFilter === 'expenses') return allFeedItems.filter((entry) => entry.type === 'expense')
-    if (entryFilter === 'income') return allFeedItems.filter((entry) => entry.type === 'income')
-    return allFeedItems
-  }, [allFeedItems, entryFilter])
+    // Always pin the visible list to the currently selected month using a
+    // string comparison on the YYYY-MM prefix of occurred_on. This is the
+    // single source of truth for which rows are eligible for display, and
+    // it is intentionally independent of any server-side date range filter
+    // so that timezone drift, stale fetches, or future fetch-window
+    // changes can never leak adjacent-month rows into the view. The type
+    // filter is layered on top so {month} x {type} intersect correctly.
+    const monthFiltered = allFeedItems.filter((entry) => entry.occurred_on.slice(0, 7) === selectedMonth)
+    if (entryFilter === 'expenses') return monthFiltered.filter((entry) => entry.type === 'expense')
+    if (entryFilter === 'income') return monthFiltered.filter((entry) => entry.type === 'income')
+    return monthFiltered
+  }, [allFeedItems, entryFilter, selectedMonth])
 
   // Soft duplicate detection: highlight rows that share
   // (type, amount, occurred_on, normalized note) with another row inside

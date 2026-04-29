@@ -12,7 +12,6 @@ import { AssistantView } from './components/AssistantView'
 import { buildCompactLedger } from './lib/assistantContext'
 import { isSupabaseConfigured, supabase } from './supabase'
 import type { AppScreen, EntryType, FinanceEntry, FinancialAccount, Household, UserProfileView } from './types'
-import { monthValueToRange } from './lib/month'
 import { getReceiptPublicUrl } from './lib/receiptStorage'
 import { uploadProfileImage } from './lib/profileStorage'
 import { analyzeSpokenExpenseWithGemini } from './lib/geminiReceipt'
@@ -258,15 +257,20 @@ function App() {
     if (!supabase) return
     setLoadingData(true)
     setStatusMessage(null)
-    const { startDate, endDate, monthDate } = monthValueToRange(monthValue)
-    const historyStartDate = new Date(`${monthValue}-01T00:00:00`)
-    historyStartDate.setMonth(historyStartDate.getMonth() - 11)
-    const historyStart = new Date(historyStartDate.getFullYear(), historyStartDate.getMonth(), 1)
-      .toISOString()
-      .slice(0, 10)
-    const historyEnd = new Date(`${monthValue}-01T00:00:00`)
-    historyEnd.setMonth(historyEnd.getMonth() + 1)
-    historyEnd.setDate(0)
+    // Timezone-safe date strings derived directly from the "YYYY-MM" value.
+    // We deliberately avoid Date.toISOString() because it converts local
+    // midnight to UTC and silently shifts month boundaries by ~3h in
+    // Asia/Jerusalem, which leaks neighboring-month rows into the query
+    // window and drops the last day of the selected month.
+    const [yNum, mNum] = monthValue.split('-').map(Number)
+    const pad2 = (n: number) => String(n).padStart(2, '0')
+    const lastDayCurrent = new Date(yNum, mNum, 0).getDate()
+    const startDate = `${monthValue}-01`
+    const endDate = `${monthValue}-${pad2(lastDayCurrent)}`
+    const monthDate = startDate
+    const historyStartLocal = new Date(yNum, mNum - 1 - 11, 1)
+    const historyStart = `${historyStartLocal.getFullYear()}-${pad2(historyStartLocal.getMonth() + 1)}-01`
+    const historyEnd = endDate
     const missingOptionalColumns = (error: unknown) => {
       if (!error || typeof error !== 'object') return false
       const e = error as { code?: string; message?: string }
@@ -349,7 +353,7 @@ function App() {
             .select('type,amount,occurred_on,planned,account_id,owner_id')
             .eq('household_id', householdId)
             .gte('occurred_on', historyStart)
-            .lte('occurred_on', historyEnd.toISOString().slice(0, 10))
+            .lte('occurred_on', historyEnd)
             .order('occurred_on', { ascending: true }),
         ])
       if (txError) throw txError
