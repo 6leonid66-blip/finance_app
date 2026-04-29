@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { supabase } from '../supabase'
 import { ALL_PLAN_CATEGORIES, isOtherCategory } from '../constants/categories'
@@ -89,6 +89,25 @@ export function RecurringTemplatesPanel({
     const idx = installmentIndex(row.template_start_month!, vm, total)
     return `תשלום ${idx} מתוך ${total}`
   }
+
+  /** סיכום חודשי לקבועים פעילים עם סכום קבוע (לא כולל תקציב משתנה). */
+  const activeFixedTotals = useMemo(() => {
+    let income = 0
+    let expense = 0
+    let variableActive = 0
+    for (const row of list) {
+      if (!row.active) continue
+      if (row.mode === 'variable_budget') {
+        variableActive += 1
+        continue
+      }
+      const amt = Number(row.default_amount ?? 0)
+      if (!Number.isFinite(amt)) continue
+      if (row.direction === 'income') income += amt
+      else expense += amt
+    }
+    return { income, expense, variableActive, balance: income - expense }
+  }, [list])
 
   const load = async () => {
     if (!supabase) return
@@ -328,6 +347,41 @@ export function RecurringTemplatesPanel({
           </button>
         </div>
       </div>
+
+      {!loading && list.length ? (
+        <article className="card tx-totals-bar recurring-grand-totals-bar">
+          <div className="tx-totals-row">
+            <span className="tx-totals-label">סך הכנסות מהפעילים (סכום קבוע)</span>
+            <strong className="tx-totals-value amount-income">
+              {activeFixedTotals.income.toLocaleString()} ₪
+            </strong>
+          </div>
+          <div className="tx-totals-row">
+            <span className="tx-totals-label">סך הוצאות מהפעילים (סכום קבוע)</span>
+            <strong className="tx-totals-value amount-expense">
+              {activeFixedTotals.expense.toLocaleString()} ₪
+            </strong>
+          </div>
+          <div className="tx-totals-row tx-totals-balance">
+            <span className="tx-totals-label">יתרה (הכנסות − הוצאות בהגדרות)</span>
+            <strong
+              className={`tx-totals-value ${
+                activeFixedTotals.balance >= 0 ? 'amount-income' : 'amount-expense'
+              }`}
+            >
+              {activeFixedTotals.balance.toLocaleString()} ₪
+            </strong>
+          </div>
+          {activeFixedTotals.variableActive > 0 ? (
+            <p className="muted small tx-totals-sub recurring-totals-footnote">
+              לא נכלל בסכום:{' '}
+              {activeFixedTotals.variableActive === 1
+                ? 'קבוע אחד בתקציב משתנה'
+                : `${activeFixedTotals.variableActive} קבועים בתקציב משתנה`}
+            </p>
+          ) : null}
+        </article>
+      ) : null}
 
       {loading ? <p className="muted">טוען…</p> : null}
       {error ? <p className="sheet-error">{error}</p> : null}

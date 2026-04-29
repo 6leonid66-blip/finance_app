@@ -59,9 +59,34 @@ function isFromRecurringTemplate(e: FinanceEntry | undefined | null): boolean {
   return !!(e.is_auto_from_recurring || e.auto_post_template_id)
 }
 
+type FeedSectionTotals = { income: number; expense: number }
+
 type FeedRenderItem =
-  | { kind: 'section'; key: string; label: string }
+  | { kind: 'section'; key: string; label: string; totals?: FeedSectionTotals }
   | { kind: 'row'; entry: FeedItem }
+
+/** סכום הכנסות/הוצאות של קבוצת שורות (אחרי הפילטר בפיד). */
+function bucketIncomeExpense(items: FeedItem[]) {
+  let income = 0
+  let expense = 0
+  for (const it of items) {
+    if (it.type === 'income') income += it.amount
+    else expense += it.amount
+  }
+  return { income, expense }
+}
+
+function sectionTotalSubtitle(filter: EntryFilter, totals: FeedSectionTotals) {
+  if (filter === 'expenses') {
+    return `סך הכל: ${totals.expense.toLocaleString()} ₪`
+  }
+  if (filter === 'income') {
+    return `סך הכל: ${totals.income.toLocaleString()} ₪`
+  }
+  const { income, expense } = totals
+  const balance = income - expense
+  return `הוצאות ${expense.toLocaleString()} ₪ · הכנסות ${income.toLocaleString()} ₪ · יתרה ${balance.toLocaleString()} ₪`
+}
 
 export function TransactionsView({
   entries,
@@ -202,13 +227,33 @@ export function TransactionsView({
       })
     const fromTemplate = sortBucket(fromTemplateRaw)
     const manual = sortBucket(manualRaw)
+    const recTotals = bucketIncomeExpense(fromTemplate)
+    const manTotals = bucketIncomeExpense(manual)
     const out: FeedRenderItem[] = []
     if (fromTemplate.length > 0) {
-      out.push({ kind: 'section', key: 'sec-recurring', label: 'מתוך קבועים' })
+      out.push({
+        kind: 'section',
+        key: 'sec-recurring',
+        label: 'מתוך הקבועים',
+        totals: recTotals,
+      })
     }
     fromTemplate.forEach((entry) => out.push({ kind: 'row', entry }))
     if (fromTemplate.length > 0 && manual.length > 0) {
-      out.push({ kind: 'section', key: 'sec-manual', label: 'תנועות ידניות' })
+      out.push({
+        kind: 'section',
+        key: 'sec-manual',
+        label: 'תנועות ידניות',
+        totals: manTotals,
+      })
+    }
+    if (fromTemplate.length === 0 && manual.length > 0) {
+      out.push({
+        kind: 'section',
+        key: 'sec-manual',
+        label: 'תנועות ידניות',
+        totals: manTotals,
+      })
     }
     manual.forEach((entry) => out.push({ kind: 'row', entry }))
     return out
@@ -692,8 +737,11 @@ export function TransactionsView({
           {feedRenderList.map((item) => {
             if (item.kind === 'section') {
               return (
-                <li key={item.key} className="tx-feed-section">
-                  {item.label}
+                <li key={item.key} className="tx-feed-section tx-feed-section-sticky">
+                  <div className="tx-feed-section-title">{item.label}</div>
+                  {item.totals ? (
+                    <div className="tx-feed-section-sum">{sectionTotalSubtitle(entryFilter, item.totals)}</div>
+                  ) : null}
                 </li>
               )
             }
@@ -728,7 +776,7 @@ export function TransactionsView({
               isDupExtra ? (
                 <div className="entry-badges">
                   {isFromRecurringTemplate(entry.sourceEntry) ? (
-                    <span className="entry-badge entry-badge-fixed">קבוע-אוטומטי</span>
+                    <span className="entry-badge entry-badge-fixed">מתוך הקבועים</span>
                   ) : null}
                   {entry.sourceEntry?.installment_progress_label ? (
                     <span className="entry-badge entry-badge-progress">{entry.sourceEntry.installment_progress_label}</span>
@@ -760,7 +808,7 @@ export function TransactionsView({
           })}
           {!filteredEntries.length ? <li className="empty">אין תנועות להצגה במסנן הנוכחי.</li> : null}
         </ul>
-        <div className="bank-table-wrap">
+        <div className="bank-table-wrap tx-trans-feed-scroll">
           <table className="bank-table">
             <thead>
               <tr>
@@ -778,9 +826,14 @@ export function TransactionsView({
               {feedRenderList.map((item) => {
                 if (item.kind === 'section') {
                   return (
-                    <tr key={item.key} className="tx-section-row">
+                    <tr key={item.key} className="tx-section-row tx-section-row-sticky">
                       <td colSpan={8} className="tx-section-label">
-                        {item.label}
+                        <div className="tx-section-label-inner">
+                          <span className="tx-section-title">{item.label}</span>
+                          {item.totals ? (
+                            <span className="tx-section-sum">{sectionTotalSubtitle(entryFilter, item.totals)}</span>
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                   )
@@ -816,7 +869,7 @@ export function TransactionsView({
                   </td>
                   <td data-label="סטטוס">
                     {fromRec ? (
-                      <span className="entry-badge entry-badge-fixed">קבוע-אוטומטי</span>
+                      <span className="entry-badge entry-badge-fixed">מתוך הקבועים</span>
                     ) : null}
                     {entry.sourceEntry?.installment_progress_label ? (
                       <span className="entry-badge entry-badge-progress">{entry.sourceEntry.installment_progress_label}</span>
