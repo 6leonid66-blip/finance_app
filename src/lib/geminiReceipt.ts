@@ -19,6 +19,40 @@ function mapGeminiError(status: number) {
   return `Gemini API error: ${status}`
 }
 
+async function toGeminiError(response: Response): Promise<Error> {
+  const status = response.status
+  let reason = ''
+  let message = ''
+  try {
+    const payload = (await response.json()) as {
+      error?: {
+        status?: string
+        message?: string
+        details?: Array<{ reason?: string }>
+      }
+    }
+    reason = payload.error?.details?.[0]?.reason ?? ''
+    message = payload.error?.message ?? ''
+    if (!reason && payload.error?.status) reason = payload.error.status
+  } catch {
+    // Ignore JSON parsing errors and fall back to generic status mapping.
+  }
+
+  if (reason === 'API_KEY_INVALID' || /key expired|invalid api key/i.test(message)) {
+    return new Error('מפתח Gemini לא תקין או פג תוקף. צור API key חדש ועדכן VITE_GEMINI_API_KEY ב-Vercel וב-.env.')
+  }
+  if (reason === 'SERVICE_DISABLED' || /api .* has not been used|not enabled/i.test(message)) {
+    return new Error('Generative Language API לא מופעל בפרויקט הזה. הפעל אותו ב-Google Cloud ואז נסה שוב.')
+  }
+  if (reason === 'BILLING_DISABLED' || /billing/i.test(message)) {
+    return new Error('Billing כבוי בפרויקט של Gemini. הפעל Billing כדי להשתמש ב-AI.')
+  }
+  if (message.trim()) {
+    return new Error(`${mapGeminiError(status)} (${message.trim()})`)
+  }
+  return new Error(mapGeminiError(status))
+}
+
 async function callGeminiWithFallback(params: {
   apiKey: string
   body: string
@@ -46,7 +80,7 @@ async function callGeminiWithFallback(params: {
     }
     lastErrorStatus = response.status
     if (response.status !== 404) {
-      throw new Error(mapGeminiError(response.status))
+      throw await toGeminiError(response)
     }
   }
   throw new Error(mapGeminiError(lastErrorStatus ?? 404))
