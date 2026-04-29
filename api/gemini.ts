@@ -73,6 +73,7 @@ type ProxyResultChat = {
   kind: 'chat'
   reply: string
   action?: AssistantAction
+  grounded?: boolean
 }
 
 type ProxyResult = ProxyResultJson | ProxyResultText | ProxyResultStatement | ProxyResultChat | ProxyError
@@ -98,6 +99,17 @@ function normalizeAmount(raw: unknown): number | undefined {
   const num = Number(sanitized)
   if (!Number.isFinite(num) || num <= 0) return undefined
   return num
+}
+
+function isToolUnsupportedError(failure: { status: number; reason: string; message: string }): boolean {
+  if (failure.status !== 400) return false
+  const haystack = `${failure.reason} ${failure.message}`.toLowerCase()
+  return (
+    haystack.includes('googlesearch') ||
+    haystack.includes('google_search') ||
+    haystack.includes('grounding') ||
+    (haystack.includes('tool') && (haystack.includes('not supported') || haystack.includes('unsupported') || haystack.includes('unknown')))
+  )
 }
 
 async function callGemini(params: {
@@ -179,7 +191,13 @@ function buildStatementImagePrompt(): string {
 function buildChatSystemPrompt(): string {
   return [
     'אתה עוזר פיננסי אישי למשפחה ישראלית. ענה תמיד בעברית, קצר וברור.',
-    'השתמש *רק* בנתוני הקלסר (ledger) שמסופקים בהודעה הראשונה. אם שאלה דורשת נתון שאינו בקלסר, אמור שאין מספיק מידע במקום לנחש.',
+    'חוק ברזל: לעולם אל תמציא מספרים, שמות, קטגוריות או תאריכים. כל נתון פיננסי אישי חייב להגיע אך ורק מ-JSON של הקלסר (ledger) שצורף.',
+    'אם המשתמש שואל שאלה שדורשת נתון שאינו מופיע בקלסר, ענה במפורש: "אני לא רואה את הנתון הזה בקלסר שלך — אם תרצה, אני יכול להציע איך למצוא אותו", והצע כיוון או שאלת המשך ממוקדת. אל תיתן מספר מנוחש.',
+    'אל תיתן תשובות סתמיות שמסיימות את השיחה. תמיד הצע כיוון, סיכום, או שאלת המשך קצרה כדי להמשיך לעזור — גם כשאתה מבקש הבהרה.',
+    'אם השאלה לא ברורה (למשל "איזה חודש?", "אישי או משותף?"), שאל שאלת הבהרה אחת קצרה, אבל גם תן מיד את הניתוח הטוב ביותר שאתה יכול על בסיס הנתונים הקיימים — אל תדחה את כל התשובה לבירור.',
+    'לשאלות מסוג "ההוצאה הכי נמוכה / הכי גבוהה החודש": בדוק קודם את ledger.month_min_expense ו-ledger.month_max_expense. אם השדה קיים, השתמש בו מילולית וצטט את התנועה התואמת (סכום, קטגוריה, תאריך, הערה). רק אם השדה null, סרוק את ledger.month_transactions.',
+    'אם המשתמש מתקן אותך או מציין פריט שלא הזכרת ("אבל יש לי אינטרנט ב-40 ש\\"ח"), אל תסכים אוטומטית עם המספר שהוא נקב. בדוק שוב ב-ledger.month_transactions וב-ledger.recent_transactions, ועדכן את התשובה רק אם הפריט באמת קיים שם בדיוק. אם הוא לא נמצא, אמור זאת בעדינות.',
+    'לשאלות חיצוניות / עכשוויות (שערי מטבע, מחירים, חדשות, ידע כללי, הגדרות) — מותר לך להשתמש בכלי החיפוש googleSearch שסופק לך כדי להביא מידע עדכני. אל תשתמש בחיפוש אינטרנט עבור הנתונים האישיים של המשתמש; הם תמיד באים מ-ledger בלבד.',
     'כשהמשתמש מבקש להוסיף הוצאה או הכנסה, החזר *בסוף* התשובה בלבד בלוק JSON אחד בפורמט הבא, בתוך ```json ... ```:',
     '{ "action": "add_transaction", "type": "expense"|"income", "amount": number, "category": string, "note": string }',
     'בכל מקרה אחר אל תכלול בלוק JSON. אל תוסיף הסברים על ה-JSON.',
@@ -452,8 +470,8 @@ export default async function handler(request: Request): Promise<Response> {
     if (!messagesIn.length) {
       return jsonResponse({ ok: false, status: 400, reason: 'BAD_MESSAGES', message: 'messages array required' }, 400)
     }
-    const trimmed = messagesIn.slice(-12)
-    const ledgerText = JSON.stringify(ledger).slice(0, 12_000)
+    const trimmed = messagesIn.slice(-16)
+    const ledgerText = JSON.stringify(ledger).slice(0, 16_000)
     const systemPrompt = buildChatSystemPrompt()
     const contents: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = []
     contents.push({
@@ -475,13 +493,23 @@ export default async function handler(request: Request): Promise<Response> {
     if (!contents.some((c) => c.role === 'user' && c.parts[0]?.text !== systemPrompt && c.parts[0]?.text?.startsWith('קלסר') !== true)) {
       return jsonResponse({ ok: false, status: 400, reason: 'BAD_MESSAGES', message: 'no user message found' }, 400)
     }
-    const result = await callGemini({
+    const baseRequest = {
+      contents,
+      generationConfig: { temperature: 0.2 },
+    }
+    let grounded = true
+    let result = await callGemini({
       apiKey,
-      body: JSON.stringify({
-        contents,
-        generationConfig: { temperature: 0.4 },
-      }),
+      body: JSON.stringify({ ...baseRequest, tools: [{ googleSearch: {} }] }),
     })
+    if (!result.ok && isToolUnsupportedError(result)) {
+      console.warn('[gemini-proxy] googleSearch tool rejected, retrying without grounding')
+      grounded = false
+      result = await callGemini({
+        apiKey,
+        body: JSON.stringify(baseRequest),
+      })
+    }
     if (!result.ok) {
       return jsonResponse(
         { ok: false, status: result.status, reason: result.reason, message: result.message },
@@ -493,7 +521,7 @@ export default async function handler(request: Request): Promise<Response> {
       return jsonResponse({ ok: false, status: 502, reason: 'EMPTY_TEXT', message: 'Gemini did not return text' }, 502)
     }
     const { reply, action } = parseAssistantAction(text)
-    return jsonResponse({ ok: true, kind: 'chat', reply, action }, 200)
+    return jsonResponse({ ok: true, kind: 'chat', reply, action, grounded }, 200)
   }
 
   return jsonResponse({ ok: false, status: 400, reason: 'BAD_KIND', message: 'kind must be receipt | voice | advice | statement-map | statement-image | chat' }, 400)

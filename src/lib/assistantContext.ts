@@ -1,5 +1,22 @@
 import type { FinanceEntry, RecurringTemplate } from '../types'
 
+export type LedgerTransaction = {
+  id: string
+  occurred_on: string
+  type: 'income' | 'expense'
+  amount: number
+  category: string
+  note: string | null
+  owner_name: string | null
+}
+
+export type LedgerExtreme = {
+  amount: number
+  category: string
+  note: string | null
+  occurred_on: string
+}
+
 export type CompactLedger = {
   household_id: string
   current_month: string
@@ -7,15 +24,11 @@ export type CompactLedger = {
   monthly_totals: { income: number; expense: number; balance: number }
   prev_3_months: { month: string; income: number; expense: number }[]
   expense_by_category: { category: string; amount: number }[]
-  recent_transactions: {
-    id: string
-    occurred_on: string
-    type: 'income' | 'expense'
-    amount: number
-    category: string
-    note: string | null
-    owner_name: string | null
-  }[]
+  recent_transactions: LedgerTransaction[]
+  month_transactions: LedgerTransaction[]
+  month_transactions_truncated: boolean
+  month_min_expense: LedgerExtreme | null
+  month_max_expense: LedgerExtreme | null
   recurring: {
     id: string
     direction: 'income' | 'expense'
@@ -97,21 +110,48 @@ export function buildCompactLedger(params: {
     .sort((a, b) => b.amount - a.amount)
     .slice(0, 10)
 
+  const toTransaction = (e: FinanceEntry): LedgerTransaction => ({
+    id: e.id,
+    occurred_on: e.occurred_on,
+    type: e.type,
+    amount: e.amount,
+    category: e.category,
+    note: e.note,
+    owner_name: e.owner_name ?? null,
+  })
+
   const recentSorted = [...actualMonthly]
     .sort((a, b) => {
       if (a.occurred_on === b.occurred_on) return b.created_at.localeCompare(a.created_at)
       return b.occurred_on.localeCompare(a.occurred_on)
     })
     .slice(0, 30)
-    .map((e) => ({
-      id: e.id,
-      occurred_on: e.occurred_on,
-      type: e.type,
+    .map(toTransaction)
+
+  const MONTH_TX_CAP = 200
+  const monthAll = [...actualMonthly].sort((a, b) => {
+    if (a.occurred_on === b.occurred_on) return b.created_at.localeCompare(a.created_at)
+    return b.occurred_on.localeCompare(a.occurred_on)
+  })
+  const truncated = monthAll.length > MONTH_TX_CAP
+  const monthSlice = truncated
+    ? [...monthAll].sort((a, b) => b.amount - a.amount).slice(0, MONTH_TX_CAP)
+    : monthAll
+  const monthTransactions = monthSlice.map(toTransaction)
+
+  const monthExpenses = actualMonthly.filter((e) => e.type === 'expense')
+  let minExpense: LedgerExtreme | null = null
+  let maxExpense: LedgerExtreme | null = null
+  for (const e of monthExpenses) {
+    const candidate: LedgerExtreme = {
       amount: e.amount,
       category: e.category,
       note: e.note,
-      owner_name: e.owner_name ?? null,
-    }))
+      occurred_on: e.occurred_on,
+    }
+    if (!minExpense || e.amount < minExpense.amount) minExpense = candidate
+    if (!maxExpense || e.amount > maxExpense.amount) maxExpense = candidate
+  }
 
   const recurringCompact = recurring.map((row) => ({
     id: row.id,
@@ -131,6 +171,10 @@ export function buildCompactLedger(params: {
     prev_3_months: prevMonths,
     expense_by_category: expenseByCategory,
     recent_transactions: recentSorted,
+    month_transactions: monthTransactions,
+    month_transactions_truncated: truncated,
+    month_min_expense: minExpense,
+    month_max_expense: maxExpense,
     recurring: recurringCompact,
   }
 }
