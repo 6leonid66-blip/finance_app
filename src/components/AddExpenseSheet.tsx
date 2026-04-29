@@ -354,14 +354,16 @@ export function AddExpenseSheet({
             {receiptPreview ? (
               <img src={receiptPreview} alt="receipt preview" className="receipt-preview" />
             ) : null}
-            <button
-              type="button"
-              className="btn-secondary"
-              disabled={!receiptFile || analyzing}
-              onClick={() => void analyzeReceipt()}
-            >
-              {analyzing ? 'מנתח עם Gemini…' : 'ניתוח חוזר ידני'}
-            </button>
+            {receiptFile ? (
+              <button
+                type="button"
+                className="btn-secondary"
+                disabled={analyzing}
+                onClick={() => void analyzeReceipt()}
+              >
+                {analyzing ? 'מנתח עם Gemini…' : 'ניתוח חוזר ידני'}
+              </button>
+            ) : null}
             <p className="muted small">בעת צילום/העלאה מתבצע ניתוח אוטומטי. רק אשר ושמור.</p>
           </section>
 
