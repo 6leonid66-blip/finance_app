@@ -247,7 +247,7 @@ export function RecurringTemplatesPanel({
     setSaving(true)
     setError(null)
     try {
-      const { error: updErr } = await supabase
+      const { data: updatedRow, error: updErr } = await supabase
         .from('recurring_templates')
         .update({
           direction,
@@ -262,13 +262,15 @@ export function RecurringTemplatesPanel({
             endRule === 'fixed_installments'
               ? Number(maxInstallments || monthDiffInclusive(startMonth, endMonth))
               : null,
-          // Auto-posting is implicit: every active recurring template posts
-          // automatically. Force the column to true on every save in case an
-          // older deploy left it false.
           auto_post_as_actual: true,
         })
         .eq('id', editingId)
+        .select('id')
+        .maybeSingle()
       if (updErr) throw updErr
+      if (!updatedRow) {
+        throw new Error('העדכון לא נשמר — הרשומה לא נמצאה או אין הרשאה.')
+      }
       setEditingId(null)
       setShowCreate(false)
       await load()
@@ -445,7 +447,7 @@ export function RecurringTemplatesPanel({
 
       {showCreate || editingId ? (
         <div
-          className="modal-backdrop"
+          className="modal-backdrop modal-backdrop--center"
           onClick={() => {
             setEditingId(null)
             setShowCreate(false)

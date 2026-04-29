@@ -70,6 +70,7 @@ function App() {
   })
   const [selectedAccountId, setSelectedAccountId] = useState<string>('')
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
+  const [recurringRpcError, setRecurringRpcError] = useState<string | null>(null)
 
   const personalAccountIds = useMemo(
     () =>
@@ -808,12 +809,17 @@ function App() {
     const householdId = household.id
     void (async () => {
       try {
-        await supabase!.rpc('ensure_auto_post_transactions_from_templates', {
+        const { error: rpcErr } = await supabase.rpc('ensure_auto_post_transactions_from_templates', {
           p_household: householdId,
           p_month: currentMonthFirstDay,
         })
-      } catch {
-        /* the per-month RPC inside loadMonthlyData will surface any error */
+        if (rpcErr) {
+          setRecurringRpcError(rpcErr.message ?? 'RPC failed')
+        } else {
+          setRecurringRpcError(null)
+        }
+      } catch (e) {
+        setRecurringRpcError(e instanceof Error ? e.message : 'סנכרון תנועות מקבועים נכשל')
       }
       await loadMonthlyData(householdId, selectedMonth)
     })()
@@ -1023,6 +1029,14 @@ function App() {
 
         {sessionUserId && household && !passwordRecoveryMode ? (
           <div key={screen} className="screen-fade">
+            {recurringRpcError ? (
+              <p className="banner-msg banner-msg-warn">
+                לא סונכרנו תנועות מהקבוע לחודש הנוכחי: {recurringRpcError}{' '}
+                <button type="button" className="link-inline" onClick={() => setRecurringRpcError(null)}>
+                  סגור
+                </button>
+              </p>
+            ) : null}
             {screen === 'dashboard' ? (
               <Dashboard
                 selectedMonth={selectedMonth}

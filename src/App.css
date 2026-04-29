@@ -1005,6 +1005,23 @@ p .thinking-dots,
   border-radius: 12px;
 }
 
+.banner-msg-warn {
+  color: var(--text);
+  background: rgba(251, 191, 36, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.35);
+}
+
+.link-inline {
+  margin-inline-start: 6px;
+  border: none;
+  background: none;
+  color: var(--primary);
+  text-decoration: underline;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+}
+
 .entry-list,
 .plan-list,
 .recurring-list {
@@ -1208,6 +1225,39 @@ p .thinking-dots,
   border: 1px solid #f59e0b !important;
   background: rgba(245, 158, 11, 0.06);
   box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.35);
+}
+
+.tx-mobile-item.tx-row-selected {
+  outline: 2px solid var(--primary);
+  outline-offset: 0;
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--card));
+}
+
+tr.tx-row-selected.duplicate-row > td,
+tr.duplicate-row.tx-row-selected > td {
+  outline: none;
+}
+
+tr.tx-row-selected > td {
+  background: color-mix(in srgb, var(--primary) 10%, var(--card));
+}
+
+.tx-selection-actions {
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.tx-select-hint {
+  margin: 0;
+  flex: 1;
+  text-align: end;
+}
+
+.card-heading-row .tx-select-hint {
+  font-size: 0.76rem;
+  max-width: 14rem;
 }
 
 tr.duplicate-row > td {
@@ -1731,6 +1781,19 @@ input[type='month'] {
     max-height: 90dvh;
     border-bottom: 0;
     padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .modal-backdrop.modal-backdrop--center {
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+  }
+
+  .modal-backdrop.modal-backdrop--center .modal-card {
+    border-radius: 14px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 12px;
+    max-height: 88dvh;
   }
 }
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { supabase } from '../supabase'
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, isOtherCategory } from '../constants/categories'
@@ -85,6 +85,12 @@ export function TransactionsView({
   const [editAnalyzing, setEditAnalyzing] = useState(false)
   const [editStatus, setEditStatus] = useState<string | null>(null)
 
+  const [selectionMode, setSelectionMode] = useState(false)
+  const [selectedTxnIds, setSelectedTxnIds] = useState<Set<string>>(() => new Set())
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const longPressFiredRef = useRef(false)
+  const skipNextRowTapRef = useRef(false)
+
   const categories = type === 'expense' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES
   const resolvedCategory = isOtherCategory(category) ? customCategory.trim() || 'אחר' : category
   const editCategories = editType === 'expense' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES
@@ -142,26 +148,122 @@ export function TransactionsView({
     return monthFiltered
   }, [allFeedItems, entryFilter, selectedMonth])
 
-  // Soft duplicate detection: highlight rows that share
-  // (type, amount, occurred_on, normalized note) with another row inside
-  // the *currently displayed* list (so it respects month + scope + type
-  // filter). Pure UI hint — never auto-merges or auto-deletes anything.
-  const duplicateIds = useMemo(() => {
-    const buckets = new Map<string, string[]>()
+  // Duplicate detection: oldest row by created_at stays unmarked; later
+  // entries with same (type, amount, occurred_on, note) get highlighted.
+  const duplicateHighlightIds = useMemo(() => {
+    const buckets = new Map<string, FeedItem[]>()
     filteredEntries.forEach((entry) => {
       const monthKey = entry.occurred_on.slice(0, 7)
       const note = (entry.note ?? '').trim().toLowerCase()
       const key = `${entry.type}|${entry.amount}|${entry.occurred_on}|${monthKey}|${note}`
       const list = buckets.get(key) ?? []
-      list.push(entry.id)
+      list.push(entry)
       buckets.set(key, list)
     })
     const ids = new Set<string>()
-    buckets.forEach((list) => {
-      if (list.length > 1) list.forEach((id) => ids.add(id))
+    buckets.forEach((items) => {
+      if (items.length < 2) return
+      const sorted = [...items].sort((a, b) => {
+        const ca = a.sourceEntry?.created_at ?? ''
+        const cb = b.sourceEntry?.created_at ?? ''
+        if (ca !== cb) return ca.localeCompare(cb)
+        const ida = a.sourceEntry?.id ?? a.id
+        const idb = b.sourceEntry?.id ?? b.id
+        return ida.localeCompare(idb)
+      })
+      for (let i = 1; i < sorted.length; i++) {
+        ids.add(sorted[i].id)
+      }
     })
     return ids
   }, [filteredEntries])
+
+  const toggleTxnSelected = (financeId: string) => {
+    setSelectedTxnIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(financeId)) next.delete(financeId)
+      else next.add(financeId)
+      return next
+    })
+  }
+
+  const clearSelection = () => {
+    setSelectionMode(false)
+    setSelectedTxnIds(new Set())
+  }
+
+  const beginLongPress = (financeId: string) => {
+    longPressFiredRef.current = false
+    longPressTimerRef.current = window.setTimeout(() => {
+      longPressFiredRef.current = true
+      skipNextRowTapRef.current = true
+      setSelectionMode(true)
+      setSelectedTxnIds((prev) => new Set(prev).add(financeId))
+      longPressTimerRef.current = null
+    }, 500)
+  }
+
+  const endLongPress = () => {
+    if (longPressTimerRef.current !== null) {
+      clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
+    }
+  }
+
+  const handleRowTap = (item: FeedItem) => {
+    if (skipNextRowTapRef.current) {
+      skipNextRowTapRef.current = false
+      return
+    }
+    const fid = item.sourceEntry?.id
+    if (!fid) return
+    if (!selectionMode) return
+    if (longPressFiredRef.current) {
+      longPressFiredRef.current = false
+      return
+    }
+    toggleTxnSelected(fid)
+  }
+
+  const removeBulk = async () => {
+    if (!supabase) return
+    const ids = Array.from(selectedTxnIds)
+    if (!ids.length) return
+    const targets: FinanceEntry[] = []
+    for (const id of ids) {
+      const fi = filteredEntries.find((f) => f.sourceEntry?.id === id)
+      if (fi?.sourceEntry) targets.push(fi.sourceEntry)
+    }
+    if (targets.length !== ids.length) {
+      setStatus('לא ניתן למחוק את כל הנבחרים')
+      return
+    }
+    const anyAuto = targets.some((e) => e.is_auto_from_recurring)
+    const msg =
+      anyAuto && targets.length > 1
+        ? `${targets.length} תנועות יימחקו. חלקן נוצרו אוטומטית מקבועים — מחיקה תסיר את התנועה בחודש הזה בלבד. להמשיך?`
+        : anyAuto && targets.length === 1
+          ? 'זו תנועה שנוצרה אוטומטית מקבוע. מחיקה כאן תמחק רק את התנועה בחודש הזה, ולא את הקבוע עצמו. להמשיך?'
+          : `למחוק ${targets.length} תנועות?`
+    if (!window.confirm(msg)) return
+    setStatus(null)
+    try {
+      for (const e of targets) {
+        if (e.receipt_path) {
+          await deleteReceiptAttachment(e.receipt_path)
+        }
+      }
+      const { error } = await supabase.from('transactions').delete().in('id', ids)
+      if (error) throw error
+      clearSelection()
+      setStatus(`נמחקו ${targets.length} תנועות`)
+      onRefresh()
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : 'מחיקה נכשלה')
+    }
+  }
+
+  useEffect(() => () => endLongPress(), [])
 
   const filteredTotals = useMemo(() => {
     const expenseTotal = filteredEntries
@@ -282,6 +384,7 @@ export function TransactionsView({
   }
 
   const beginEdit = (entry: FinanceEntry) => {
+    clearSelection()
     setEditing(entry)
     setEditType(entry.type)
     const defaultCategoryList = entry.type === 'expense' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES
@@ -528,14 +631,41 @@ export function TransactionsView({
       </article>
 
       <article className="card card-form">
-        <h3 className="card-heading">תנועות החודש</h3>
+        <div className="card-heading-row">
+          <h3 className="card-heading">תנועות החודש</h3>
+          {selectionMode ? (
+            <div className="row-actions tx-selection-actions">
+              <span className="muted small">{selectedTxnIds.size} נבחרו</span>
+              <button type="button" className="btn-secondary btn-xs" onClick={clearSelection}>
+                בטל בחירה
+              </button>
+              <button
+                type="button"
+                className="btn-danger btn-xs"
+                disabled={!selectedTxnIds.size}
+                onClick={() => void removeBulk()}
+              >
+                מחק נבחרים
+              </button>
+            </div>
+          ) : (
+            <p className="muted small tx-select-hint">לחיצה ארוכה על שורה — לבחירה ומחיקה מרובת</p>
+          )}
+        </div>
         <ul className="tx-mobile-list">
           {filteredEntries.map((entry) => {
-            const isDuplicate = duplicateIds.has(entry.id)
+            const financeId = entry.sourceEntry?.id
+            const isDupExtra = duplicateHighlightIds.has(entry.id)
+            const isSelected = financeId ? selectedTxnIds.has(financeId) : false
             return (
             <li
               key={`m-${entry.id}`}
-              className={`tx-mobile-item${isDuplicate ? ' duplicate-row' : ''}`}
+              className={`tx-mobile-item${isDupExtra ? ' duplicate-row' : ''}${selectionMode && isSelected ? ' tx-row-selected' : ''}`}
+              onPointerDown={() => financeId && beginLongPress(financeId)}
+              onPointerUp={endLongPress}
+              onPointerLeave={endLongPress}
+              onPointerCancel={endLongPress}
+              onClick={() => handleRowTap(entry)}
             >
               <div className="tx-mobile-top">
                 <strong>{entry.category}</strong>
@@ -551,7 +681,7 @@ export function TransactionsView({
               {entry.note ? <p className="tx-mobile-note">{entry.note}</p> : null}
               {entry.sourceEntry?.is_auto_from_recurring ||
               entry.sourceEntry?.installment_progress_label ||
-              isDuplicate ? (
+              isDupExtra ? (
                 <div className="entry-badges">
                   {entry.sourceEntry?.is_auto_from_recurring ? (
                     <span className="entry-badge entry-badge-fixed">קבוע-אוטומטי</span>
@@ -559,17 +689,17 @@ export function TransactionsView({
                   {entry.sourceEntry?.installment_progress_label ? (
                     <span className="entry-badge">{entry.sourceEntry.installment_progress_label}</span>
                   ) : null}
-                  {isDuplicate ? (
+                  {isDupExtra ? (
                     <span
                       className="entry-badge entry-badge-duplicate"
-                      title="רשומה זו זהה לרשומה אחרת באותו חודש (סוג, סכום, תאריך והערה). בדוק אם מדובר בכפילות בטעות ומחק ידנית אם צריך."
+                      title="עותק חשוד (לפי הרשומה הישנה יותר עם אותם פרטים). אפשר למחוק את המסומן אם כפילות בטעות."
                     >
-                      כפילות אפשרית
+                      עותק חשוד
                     </span>
                   ) : null}
                 </div>
               ) : null}
-              <div className="row-actions">
+              <div className="row-actions" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
                 {entry.sourceEntry ? (
                   <button type="button" className="btn-secondary btn-xs" onClick={() => beginEdit(entry.sourceEntry!)}>
                     ערוך
@@ -602,9 +732,25 @@ export function TransactionsView({
             </thead>
             <tbody>
               {filteredEntries.map((entry) => {
-                const isDuplicate = duplicateIds.has(entry.id)
+                const financeId = entry.sourceEntry?.id
+                const isDupExtra = duplicateHighlightIds.has(entry.id)
+                const isSelected = financeId ? selectedTxnIds.has(financeId) : false
+                const rowCls = [
+                  isDupExtra ? 'duplicate-row' : '',
+                  selectionMode && isSelected ? 'tx-row-selected' : '',
+                ]
+                  .filter(Boolean)
+                  .join(' ')
                 return (
-                <tr key={entry.id} className={isDuplicate ? 'duplicate-row' : undefined}>
+                <tr
+                  key={entry.id}
+                  className={rowCls || undefined}
+                  onPointerDown={() => financeId && beginLongPress(financeId)}
+                  onPointerUp={endLongPress}
+                  onPointerLeave={endLongPress}
+                  onPointerCancel={endLongPress}
+                  onClick={() => handleRowTap(entry)}
+                >
                   <td data-label="תאריך">{entry.occurred_on}</td>
                   <td data-label="סוג">{entry.type === 'expense' ? 'הוצאה' : 'הכנסה'}</td>
                   <td data-label="קטגוריה">{entry.category}</td>
@@ -620,22 +766,22 @@ export function TransactionsView({
                     {entry.sourceEntry?.installment_progress_label ? (
                       <span className="entry-badge">{entry.sourceEntry.installment_progress_label}</span>
                     ) : null}
-                    {isDuplicate ? (
+                    {isDupExtra ? (
                       <span
                         className="entry-badge entry-badge-duplicate"
-                        title="רשומה זו זהה לרשומה אחרת באותו חודש (סוג, סכום, תאריך והערה). בדוק אם מדובר בכפילות בטעות ומחק ידנית אם צריך."
+                        title="עותק חשוד (לפי הרשומה הישנה יותר עם אותם פרטים). אפשר למחוק את המסומן אם כפילות בטעות."
                       >
-                        כפילות אפשרית
+                        עותק חשוד
                       </span>
                     ) : null}
                     {!entry.sourceEntry?.is_auto_from_recurring &&
                     !entry.sourceEntry?.installment_progress_label &&
-                    !isDuplicate ? (
+                    !isDupExtra ? (
                       <span className="muted small">—</span>
                     ) : null}
                   </td>
                   <td data-label="פעולות">
-                    <div className="row-actions">
+                    <div className="row-actions" onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
                       {entry.sourceEntry ? (
                         <button
                           type="button"
