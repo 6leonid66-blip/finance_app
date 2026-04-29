@@ -40,6 +40,29 @@ function ownerLabel(entry: FinanceEntry) {
   return 'משתמש'
 }
 
+/** Same ordering as legacy feed: category → created_at → occurred_on → id */
+function compareFinanceEntryDisplayOrder(a: FinanceEntry, b: FinanceEntry): number {
+  const catCmp = a.category.localeCompare(b.category, 'he')
+  if (catCmp !== 0) return catCmp
+  if (a.created_at && b.created_at && a.created_at !== b.created_at) {
+    return b.created_at.localeCompare(a.created_at)
+  }
+  if (a.occurred_on !== b.occurred_on) {
+    return b.occurred_on.localeCompare(a.occurred_on)
+  }
+  return b.id.localeCompare(a.id)
+}
+
+/** Row materialised from recurring template auto-post into `transactions`. */
+function isFromRecurringTemplate(e: FinanceEntry | undefined | null): boolean {
+  if (!e) return false
+  return !!(e.is_auto_from_recurring || e.auto_post_template_id)
+}
+
+type FeedRenderItem =
+  | { kind: 'section'; key: string; label: string }
+  | { kind: 'row'; entry: FeedItem }
+
 export function TransactionsView({
   entries,
   selectedMonth,
@@ -96,21 +119,7 @@ export function TransactionsView({
   const editCategories = editType === 'expense' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES
   const resolvedEditCategory = isOtherCategory(editCategory) ? editCustomCategory.trim() || 'אחר' : editCategory
 
-  const sortedEntries = useMemo(
-    () =>
-      [...entries].sort((a, b) => {
-        const catCmp = a.category.localeCompare(b.category, 'he')
-        if (catCmp !== 0) return catCmp
-        if (a.created_at && b.created_at && a.created_at !== b.created_at) {
-          return b.created_at.localeCompare(a.created_at)
-        }
-        if (a.occurred_on !== b.occurred_on) {
-          return b.occurred_on.localeCompare(a.occurred_on)
-        }
-        return b.id.localeCompare(a.id)
-      }),
-    [entries],
-  )
+  const sortedEntries = useMemo(() => [...entries].sort(compareFinanceEntryDisplayOrder), [entries])
 
   const allFeedItems = useMemo<FeedItem[]>(
     () =>
@@ -178,6 +187,33 @@ export function TransactionsView({
     return ids
   }, [filteredEntries])
 
+  /** Recurring/auto-post rows first, then manual; headings when both buckets exist */
+  const feedRenderList = useMemo((): FeedRenderItem[] => {
+    const fromTemplateRaw: FeedItem[] = []
+    const manualRaw: FeedItem[] = []
+    for (const f of filteredEntries) {
+      if (isFromRecurringTemplate(f.sourceEntry)) fromTemplateRaw.push(f)
+      else manualRaw.push(f)
+    }
+    const sortBucket = (arr: FeedItem[]) =>
+      [...arr].sort((a, b) => {
+        if (!a.sourceEntry || !b.sourceEntry) return 0
+        return compareFinanceEntryDisplayOrder(a.sourceEntry, b.sourceEntry)
+      })
+    const fromTemplate = sortBucket(fromTemplateRaw)
+    const manual = sortBucket(manualRaw)
+    const out: FeedRenderItem[] = []
+    if (fromTemplate.length > 0) {
+      out.push({ kind: 'section', key: 'sec-recurring', label: 'מתוך קבועים' })
+    }
+    fromTemplate.forEach((entry) => out.push({ kind: 'row', entry }))
+    if (fromTemplate.length > 0 && manual.length > 0) {
+      out.push({ kind: 'section', key: 'sec-manual', label: 'תנועות ידניות' })
+    }
+    manual.forEach((entry) => out.push({ kind: 'row', entry }))
+    return out
+  }, [filteredEntries])
+
   const toggleTxnSelected = (financeId: string) => {
     setSelectedTxnIds((prev) => {
       const next = new Set(prev)
@@ -238,7 +274,7 @@ export function TransactionsView({
       setStatus('לא ניתן למחוק את כל הנבחרים')
       return
     }
-    const anyAuto = targets.some((e) => e.is_auto_from_recurring)
+    const anyAuto = targets.some((e) => isFromRecurringTemplate(e))
     const msg =
       anyAuto && targets.length > 1
         ? `${targets.length} תנועות יימחקו. חלקן נוצרו אוטומטית מקבועים — מחיקה תסיר את התנועה בחודש הזה בלבד. להמשיך?`
@@ -511,7 +547,7 @@ export function TransactionsView({
 
   const removeEntry = async (entry: FinanceEntry) => {
     if (!supabase) return
-    const confirmText = entry.is_auto_from_recurring
+    const confirmText = isFromRecurringTemplate(entry)
       ? 'זו תנועה שנוצרה אוטומטית מקבוע. מחיקה כאן תמחק רק את התנועה בחודש הזה, ולא את הקבוע עצמו. להמשיך?'
       : 'למחוק את התנועה הזו?'
     if (!window.confirm(confirmText)) return
@@ -653,7 +689,15 @@ export function TransactionsView({
           )}
         </div>
         <ul className="tx-mobile-list">
-          {filteredEntries.map((entry) => {
+          {feedRenderList.map((item) => {
+            if (item.kind === 'section') {
+              return (
+                <li key={item.key} className="tx-feed-section">
+                  {item.label}
+                </li>
+              )
+            }
+            const entry = item.entry
             const financeId = entry.sourceEntry?.id
             const isDupExtra = duplicateHighlightIds.has(entry.id)
             const isSelected = financeId ? selectedTxnIds.has(financeId) : false
@@ -679,11 +723,11 @@ export function TransactionsView({
                 {entry.accountName ? <span>{entry.accountName}</span> : null}
               </div>
               {entry.note ? <p className="tx-mobile-note">{entry.note}</p> : null}
-              {entry.sourceEntry?.is_auto_from_recurring ||
-              entry.sourceEntry?.installment_progress_label ||
+              {entry.sourceEntry?.installment_progress_label ||
+              isFromRecurringTemplate(entry.sourceEntry) ||
               isDupExtra ? (
                 <div className="entry-badges">
-                  {entry.sourceEntry?.is_auto_from_recurring ? (
+                  {isFromRecurringTemplate(entry.sourceEntry) ? (
                     <span className="entry-badge entry-badge-fixed">קבוע-אוטומטי</span>
                   ) : null}
                   {entry.sourceEntry?.installment_progress_label ? (
@@ -731,7 +775,17 @@ export function TransactionsView({
               </tr>
             </thead>
             <tbody>
-              {filteredEntries.map((entry) => {
+              {feedRenderList.map((item) => {
+                if (item.kind === 'section') {
+                  return (
+                    <tr key={item.key} className="tx-section-row">
+                      <td colSpan={8} className="tx-section-label">
+                        {item.label}
+                      </td>
+                    </tr>
+                  )
+                }
+                const entry = item.entry
                 const financeId = entry.sourceEntry?.id
                 const isDupExtra = duplicateHighlightIds.has(entry.id)
                 const isSelected = financeId ? selectedTxnIds.has(financeId) : false
@@ -741,6 +795,7 @@ export function TransactionsView({
                 ]
                   .filter(Boolean)
                   .join(' ')
+                const fromRec = isFromRecurringTemplate(entry.sourceEntry)
                 return (
                 <tr
                   key={entry.id}
@@ -760,7 +815,7 @@ export function TransactionsView({
                     {entry.amount.toLocaleString()} ₪
                   </td>
                   <td data-label="סטטוס">
-                    {entry.sourceEntry?.is_auto_from_recurring ? (
+                    {fromRec ? (
                       <span className="entry-badge entry-badge-fixed">קבוע-אוטומטי</span>
                     ) : null}
                     {entry.sourceEntry?.installment_progress_label ? (
@@ -774,7 +829,7 @@ export function TransactionsView({
                         עותק חשוד
                       </span>
                     ) : null}
-                    {!entry.sourceEntry?.is_auto_from_recurring &&
+                    {!fromRec &&
                     !entry.sourceEntry?.installment_progress_label &&
                     !isDupExtra ? (
                       <span className="muted small">—</span>
