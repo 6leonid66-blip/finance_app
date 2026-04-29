@@ -334,12 +334,15 @@ export function AddExpenseSheet({
               type="button"
               className={recordingVoice ? 'btn-danger voice-btn pulse' : 'btn-danger voice-btn'}
               onClick={toggleVoiceCapture}
+              aria-busy={recordingVoice}
             >
-              {recordingVoice
-                ? '⏹ עצור הקלטה ומלא'
-                : type === 'expense'
-                  ? '🎙️ הוצאה קולית מהירה'
-                  : '🎙️ הכנסה קולית מהירה'}
+              <span className="btn-label">
+                {recordingVoice
+                  ? '⏹ עצור הקלטה ומלא'
+                  : type === 'expense'
+                    ? '🎙️ הוצאה קולית מהירה'
+                    : '🎙️ הכנסה קולית מהירה'}
+              </span>
             </button>
             <p className="muted small">הקלטה ממלאת אוטומטית סכום, קטגוריה ותיאור. נשאר רק לאשר.</p>
             <label className="receipt-upload">
@@ -357,11 +360,19 @@ export function AddExpenseSheet({
             {receiptFile ? (
               <button
                 type="button"
-                className="btn-secondary"
+                className={analyzing ? 'btn-secondary btn-loading' : 'btn-secondary'}
                 disabled={analyzing}
+                aria-busy={analyzing}
                 onClick={() => void analyzeReceipt()}
               >
-                {analyzing ? 'מנתח עם Gemini…' : 'ניתוח חוזר ידני'}
+                <span className="btn-label">{analyzing ? 'מנתח עם Gemini…' : 'ניתוח חוזר ידני'}</span>
+                {analyzing ? (
+                  <span className="btn-spinner thinking-dots" aria-hidden>
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                ) : null}
               </button>
             ) : null}
             <p className="muted small">בעת צילום/העלאה מתבצע ניתוח אוטומטי. רק אשר ושמור.</p>
@@ -415,8 +426,20 @@ export function AddExpenseSheet({
             <button type="button" className="btn-secondary" onClick={onClose}>
               ביטול
             </button>
-            <button type="submit" className="btn-primary" disabled={saving}>
-              {saving ? 'שומר…' : 'אישור'}
+            <button
+              type="submit"
+              className={saving ? 'btn-primary btn-loading' : 'btn-primary'}
+              disabled={saving}
+              aria-busy={saving}
+            >
+              <span className="btn-label">{saving ? 'שומר…' : 'אישור'}</span>
+              {saving ? (
+                <span className="btn-spinner thinking-dots" aria-hidden>
+                  <span />
+                  <span />
+                  <span />
+                </span>
+              ) : null}
             </button>
           </div>
         </form>

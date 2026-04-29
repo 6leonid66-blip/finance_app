@@ -276,7 +276,18 @@ export function AssistantView({
             ) : null}
           </div>
         ))}
-        {sending ? <div className="chat-bubble chat-assistant"><div className="chat-content muted">חושב…</div></div> : null}
+        {sending ? (
+          <div className="chat-bubble chat-assistant" aria-live="polite">
+            <div className="chat-content muted chat-thinking">
+              <span className="thinking-dots" aria-hidden>
+                <span />
+                <span />
+                <span />
+              </span>
+              <span className="sr-only">חושב</span>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {error ? <p className="sheet-error">{error}</p> : null}
@@ -296,8 +307,20 @@ export function AssistantView({
           rows={2}
           disabled={sending}
         />
-        <button type="submit" className="btn-primary chat-send" disabled={sending || !draft.trim()}>
-          שלח
+        <button
+          type="submit"
+          className={sending ? 'btn-primary chat-send btn-loading' : 'btn-primary chat-send'}
+          disabled={sending || !draft.trim()}
+          aria-busy={sending}
+        >
+          <span className="btn-label">שלח</span>
+          {sending ? (
+            <span className="btn-spinner thinking-dots" aria-hidden>
+              <span />
+              <span />
+              <span />
+            </span>
+          ) : null}
         </button>
       </form>
     </div>

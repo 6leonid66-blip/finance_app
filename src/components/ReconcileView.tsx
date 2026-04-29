@@ -337,9 +337,36 @@ export function ReconcileView({
           <span>בחר קובץ (CSV / Excel / PDF / תמונה)</span>
         </label>
         {fileName ? <p className="muted small">קובץ: {fileName}</p> : null}
-        {phase === 'parsing' ? <p className="muted">סורק את הקובץ…</p> : null}
-        {phase === 'fetching' ? <p className="muted">משווה לתנועות שלך…</p> : null}
-        {phase === 'applying' ? <p className="muted">שומר…</p> : null}
+        {phase === 'parsing' ? (
+          <p className="muted">
+            סורק את הקובץ
+            <span className="thinking-dots" aria-hidden>
+              <span />
+              <span />
+              <span />
+            </span>
+          </p>
+        ) : null}
+        {phase === 'fetching' ? (
+          <p className="muted">
+            משווה לתנועות שלך
+            <span className="thinking-dots" aria-hidden>
+              <span />
+              <span />
+              <span />
+            </span>
+          </p>
+        ) : null}
+        {phase === 'applying' ? (
+          <p className="muted">
+            שומר
+            <span className="thinking-dots" aria-hidden>
+              <span />
+              <span />
+              <span />
+            </span>
+          </p>
+        ) : null}
         {error ? <p className="sheet-error">{error}</p> : null}
         {status ? <p className="inline-status">{status}</p> : null}
       </article>

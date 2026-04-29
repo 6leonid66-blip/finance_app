@@ -607,8 +607,22 @@ export function RecurringTemplatesPanel({
                 >
                   ביטול
                 </button>
-                <button type="submit" className="btn-primary" disabled={saving}>
-                  {saving ? 'שומר…' : editingId ? 'שמור שינויים' : 'הוסף קבוע'}
+                <button
+                  type="submit"
+                  className={saving ? 'btn-primary btn-loading' : 'btn-primary'}
+                  disabled={saving}
+                  aria-busy={saving}
+                >
+                  <span className="btn-label">
+                    {saving ? 'שומר…' : editingId ? 'שמור שינויים' : 'הוסף קבוע'}
+                  </span>
+                  {saving ? (
+                    <span className="btn-spinner thinking-dots" aria-hidden>
+                      <span />
+                      <span />
+                      <span />
+                    </span>
+                  ) : null}
                 </button>
               </div>
             </form>

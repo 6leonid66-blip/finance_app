@@ -3,6 +3,7 @@ import type { FormEvent, PointerEvent as ReactPointerEvent } from 'react'
 import './App.css'
 import { AddExpenseSheet } from './components/AddExpenseSheet'
 import type { AddExpensePrefill } from './components/AddExpenseSheet'
+import { AppBootScreen } from './components/AppBootScreen'
 import { BottomNav } from './components/BottomNav'
 import { Dashboard } from './components/Dashboard'
 import { RecurringTemplatesPanel } from './components/RecurringTemplatesPanel'
@@ -1021,7 +1022,7 @@ function App() {
         ) : null}
 
         {sessionUserId && household && !passwordRecoveryMode ? (
-          <>
+          <div key={screen} className="screen-fade">
             {screen === 'dashboard' ? (
               <Dashboard
                 selectedMonth={selectedMonth}
@@ -1098,20 +1099,14 @@ function App() {
               />
             ) : null}
 
-          </>
+          </div>
         ) : null}
 
         {sessionUserId && !household && !passwordRecoveryMode ? (
-          <section className="card">
-            <h2>טוען את הבית שלך…</h2>
-            <p className="muted">
-              אם זה נשאר הרבה זמן, כנראה שיש בעיית DB/RLS. בדוק שהרצת את כל המיגרציות ב-Supabase.
-            </p>
-            {statusMessage ? <p className="inline-status">{statusMessage}</p> : null}
-          </section>
+          <AppBootScreen statusMessage={statusMessage} />
         ) : null}
 
-        {statusMessage ? <p className="banner-msg">{statusMessage}</p> : null}
+        {sessionUserId && household && statusMessage ? <p className="banner-msg">{statusMessage}</p> : null}
 
         {authLoading && !sessionUserId ? <p className="muted center">בודק משתמש…</p> : null}
       </main>
