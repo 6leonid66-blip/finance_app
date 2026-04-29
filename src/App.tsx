@@ -82,18 +82,19 @@ function App() {
     () => accounts.filter((account) => account.is_shared).map((account) => account.id),
     [accounts],
   )
+  const accountsLoaded = accounts.length > 0
   const scopedEntries = useMemo(() => {
+    if (!accountsLoaded) return entries
     const ids = scopeMode === 'shared' ? sharedAccountIds : personalAccountIds
-    if (!ids.length) return entries
     const idSet = new Set(ids)
     return entries.filter((entry) => (entry.account_id ? idSet.has(entry.account_id) : scopeMode !== 'shared'))
-  }, [entries, personalAccountIds, scopeMode, sharedAccountIds])
+  }, [accountsLoaded, entries, personalAccountIds, scopeMode, sharedAccountIds])
   const scopedHistoryEntries = useMemo(() => {
+    if (!accountsLoaded) return historyEntries
     const ids = scopeMode === 'shared' ? sharedAccountIds : personalAccountIds
-    if (!ids.length) return historyEntries
     const idSet = new Set(ids)
     return historyEntries.filter((entry) => (entry.account_id ? idSet.has(entry.account_id) : scopeMode !== 'shared'))
-  }, [historyEntries, personalAccountIds, scopeMode, sharedAccountIds])
+  }, [accountsLoaded, historyEntries, personalAccountIds, scopeMode, sharedAccountIds])
   const actualIncome = useMemo(
     () => scopedEntries.filter((e) => e.type === 'income' && !e.planned).reduce((s, e) => s + e.amount, 0),
     [scopedEntries],
