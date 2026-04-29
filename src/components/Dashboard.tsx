@@ -15,6 +15,8 @@ type DashboardProps = {
   onSelectAccount: (id: string) => void
   loading: boolean
   onSignOut: () => void
+  householdCode: string
+  onJoinByCode: (code: string) => Promise<{ ok: boolean; message: string }>
 }
 
 function pct(actual: number, planned: number) {
@@ -41,6 +43,8 @@ export function Dashboard({
   onSelectAccount,
   loading,
   onSignOut,
+  householdCode,
+  onJoinByCode,
 }: DashboardProps) {
   const defaultDismissed =
     typeof window !== 'undefined' ? localStorage.getItem('pwa-install-dismissed') === '1' : false
@@ -55,6 +59,9 @@ export function Dashboard({
     defaultIosHint ? 'iPhone: Share → Add to Home Screen כדי להתקין.' : '',
   )
   const [installDismissed, setInstallDismissed] = useState(defaultDismissed)
+  const [joinCode, setJoinCode] = useState('')
+  const [joinLoading, setJoinLoading] = useState(false)
+  const [joinMessage, setJoinMessage] = useState<string | null>(null)
 
   useEffect(() => {
     const onBeforeInstall = (event: Event) => {
@@ -93,6 +100,28 @@ export function Dashboard({
     localStorage.setItem('pwa-install-dismissed', '1')
     setInstallDismissed(true)
     setShowInstallHint(false)
+  }
+
+  const copyHouseholdCode = async () => {
+    try {
+      await navigator.clipboard.writeText(householdCode)
+      setJoinMessage('קוד הבית הועתק')
+    } catch {
+      setJoinMessage('לא הצלחתי להעתיק. אפשר להעתיק ידנית.')
+    }
+  }
+
+  const submitJoinCode = async () => {
+    const code = joinCode.trim()
+    if (!code) {
+      setJoinMessage('יש להזין קוד בית')
+      return
+    }
+    setJoinLoading(true)
+    const result = await onJoinByCode(code)
+    setJoinMessage(result.message)
+    setJoinLoading(false)
+    if (result.ok) setJoinCode('')
   }
 
   const balanceActual = actualIncome - actualExpense
@@ -203,6 +232,31 @@ export function Dashboard({
       ) : null}
 
       {loading ? <p className="muted">טוען נתונים…</p> : null}
+
+      <section className="card card-form">
+        <h2 className="card-heading">שיתוף בית / חיבור חשבון שני</h2>
+        <p className="muted small">קוד הבית שלך: <code>{householdCode}</code></p>
+        <div className="row-actions">
+          <button type="button" className="btn-secondary btn-xs" onClick={() => void copyHouseholdCode()}>
+            העתק קוד
+          </button>
+        </div>
+        <label className="stack" style={{ marginTop: 8 }}>
+          <span>הצטרפות לבית קיים לפי קוד</span>
+          <input
+            type="text"
+            value={joinCode}
+            onChange={(e) => setJoinCode(e.target.value)}
+            placeholder="הדבק כאן קוד בית"
+          />
+        </label>
+        <div className="row-actions">
+          <button type="button" className="btn-primary btn-xs" disabled={joinLoading} onClick={() => void submitJoinCode()}>
+            {joinLoading ? 'מחבר…' : 'חבר לחשבון המשפחתי'}
+          </button>
+        </div>
+        {joinMessage ? <p className="inline-status">{joinMessage}</p> : null}
+      </section>
 
       <div className="kpi-grid">
         <article className="kpi-card kpi-income">

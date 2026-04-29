@@ -13,7 +13,7 @@ import { monthValueToRange } from './lib/month'
 import { getReceiptPublicUrl } from './lib/receiptStorage'
 
 function App() {
-  const [screen, setScreen] = useState<AppScreen>('dashboard')
+  const [screen, setScreen] = useState<AppScreen>('transactions')
   const [sheetOpen, setSheetOpen] = useState(false)
   const [sheetType, setSheetType] = useState<'expense' | 'income'>('expense')
   const [sessionUserId, setSessionUserId] = useState<string | null>(null)
@@ -23,6 +23,8 @@ function App() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [authError, setAuthError] = useState<string | null>(null)
+  const [authInfo, setAuthInfo] = useState<string | null>(null)
+  const [resendingVerification, setResendingVerification] = useState(false)
   const [household, setHousehold] = useState<Household | null>(null)
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7))
   const [loadingData, setLoadingData] = useState(false)
@@ -59,6 +61,11 @@ function App() {
       }
     }
     return typeof error === 'string' ? error : 'שגיאה לא צפויה'
+  }
+
+  const getAuthRedirectTo = () => {
+    if (typeof window === 'undefined') return undefined
+    return window.location.origin
   }
 
   async function ensureUserAccount(householdId: string, userId: string) {
@@ -253,7 +260,7 @@ function App() {
           .order('created_at', { ascending: true }),
           supabase
           .from('recurring_templates')
-          .select('direction,category,active')
+          .select('id,direction,category,active,template_start_month,end_rule,max_installments')
           .eq('household_id', householdId)
           .eq('active', true),
           supabase
@@ -304,9 +311,28 @@ function App() {
       }
       const accountMap = new Map(accountRows.map((a) => [a.id, a.name]))
       const recurringKey = new Set(
-        ((recurringData ?? []) as Array<{ direction: 'income' | 'expense'; category: string }>).map(
+        (
+          (recurringData ?? []) as Array<{
+            id: string
+            direction: 'income' | 'expense'
+            category: string
+            template_start_month: string
+            end_rule: string
+            max_installments: number | null
+          }>
+        ).map(
           (row) => `${row.direction}__${row.category}`,
         ),
+      )
+      const recurringById = new Map(
+        (
+          (recurringData ?? []) as Array<{
+            id: string
+            template_start_month: string
+            end_rule: string
+            max_installments: number | null
+          }>
+        ).map((row) => [row.id, row]),
       )
       setRecurringKeys(Array.from(recurringKey))
 
@@ -321,6 +347,18 @@ function App() {
             receipt_url: getReceiptPublicUrl(row.receipt_path),
             is_fixed: recurringKey.has(`${row.type}__${row.category}`),
             is_auto_from_recurring: Boolean(row.auto_post_template_id),
+            installment_progress_label: (() => {
+              if (!row.auto_post_template_id) return null
+              const template = recurringById.get(row.auto_post_template_id)
+              if (!template || template.end_rule !== 'fixed_installments' || !template.max_installments) return null
+              const start = new Date(`${template.template_start_month.slice(0, 7)}-01T00:00:00`)
+              const current = new Date(`${row.occurred_on.slice(0, 7)}-01T00:00:00`)
+              const monthDelta =
+                (current.getFullYear() - start.getFullYear()) * 12 + (current.getMonth() - start.getMonth())
+              const currentInstallment = Math.min(template.max_installments, Math.max(1, monthDelta + 1))
+              const remaining = Math.max(0, template.max_installments - currentInstallment)
+              return `תשלום ${currentInstallment}/${template.max_installments} · נשארו ${remaining}`
+            })(),
           }
         }),
       )
@@ -392,15 +430,22 @@ function App() {
     event.preventDefault()
     if (!supabase) return
     setAuthError(null)
+    setAuthInfo(null)
     setAuthLoading(true)
     try {
       if (authMode === 'signin') {
         const { error } = await supabase.auth.signInWithPassword({ email, password })
         if (error) throw error
       } else {
-        const { error } = await supabase.auth.signUp({ email, password })
+        const { error } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            emailRedirectTo: getAuthRedirectTo(),
+          },
+        })
         if (error) throw error
-        setAuthError('נרשמת בהצלחה. אם יש אימות מייל, יש לאשר לפני כניסה.')
+        setAuthInfo('נרשמת בהצלחה. נשלח מייל אימות. אם לא הגיע, לחץ "שלח שוב מייל אימות".')
         setAuthMode('signin')
       }
     } catch (error) {
@@ -408,6 +453,24 @@ function App() {
     } finally {
       setAuthLoading(false)
     }
+  }
+
+  const resendVerificationEmail = async () => {
+    if (!supabase || !email.trim()) return
+    setResendingVerification(true)
+    setAuthError(null)
+    setAuthInfo(null)
+    const { error } = await supabase.auth.resend({
+      type: 'signup',
+      email: email.trim(),
+      options: { emailRedirectTo: getAuthRedirectTo() },
+    })
+    if (error) {
+      setAuthError(error.message)
+    } else {
+      setAuthInfo('נשלח שוב מייל אימות. בדוק גם ספאם/קידומי מכירות.')
+    }
+    setResendingVerification(false)
   }
 
   const signOut = async () => {
@@ -422,6 +485,28 @@ function App() {
 
   const refreshMonth = () => {
     if (household) void loadMonthlyData(household.id, selectedMonth)
+  }
+
+  const joinHouseholdByCode = async (code: string) => {
+    if (!supabase || !sessionUserId) return { ok: false, message: 'אין משתמש מחובר' }
+    try {
+      const { data, error } = await supabase.rpc('join_household_by_code', {
+        p_household_code: code.trim(),
+      })
+      if (error) throw error
+      const row = Array.isArray(data) ? data[0] : null
+      const joinedHouseholdId = (row as { out_household_id?: string } | null)?.out_household_id
+      const joinedHouseholdName = (row as { out_household_name?: string } | null)?.out_household_name
+      if (!joinedHouseholdId) {
+        return { ok: false, message: 'לא נמצא בית עם הקוד הזה' }
+      }
+      setHousehold({ id: joinedHouseholdId, name: joinedHouseholdName ?? 'הבית שלנו' })
+      await ensureUserAccount(joinedHouseholdId, sessionUserId)
+      await loadMonthlyData(joinedHouseholdId, selectedMonth)
+      return { ok: true, message: 'החשבון חובר בהצלחה לבית המשפחתי' }
+    } catch (error) {
+      return { ok: false, message: `חיבור נכשל: ${describeError(error)}` }
+    }
   }
 
   const showFab = screen === 'dashboard' || screen === 'transactions'
@@ -474,11 +559,21 @@ function App() {
               onClick={() => {
                 setAuthMode((m) => (m === 'signin' ? 'signup' : 'signin'))
                 setAuthError(null)
+                setAuthInfo(null)
               }}
             >
               {authMode === 'signin' ? 'אין חשבון? הרשמה' : 'יש חשבון? התחברות'}
             </button>
+            <button
+              type="button"
+              className="link-btn"
+              disabled={resendingVerification || !email.trim()}
+              onClick={() => void resendVerificationEmail()}
+            >
+              {resendingVerification ? 'שולח…' : 'שלח שוב מייל אימות'}
+            </button>
             {authError ? <p className="inline-status">{authError}</p> : null}
+            {authInfo ? <p className="inline-status">{authInfo}</p> : null}
           </section>
         ) : null}
 
@@ -499,6 +594,8 @@ function App() {
                 onSelectAccount={setSelectedAccountId}
                 loading={loadingData}
                 onSignOut={signOut}
+                householdCode={household.id}
+                onJoinByCode={joinHouseholdByCode}
               />
             ) : null}
 

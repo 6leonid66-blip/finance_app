@@ -64,10 +64,10 @@
   font-size: 0.9rem;
 }
 
-.stack input,
+.stack input:not([type='checkbox']):not([type='radio']):not([type='file']),
 .stack select,
 .stack button,
-.sheet-form input,
+.sheet-form input:not([type='checkbox']):not([type='radio']):not([type='file']),
 .sheet-form select,
 .sheet-form button,
 .month-field input {
@@ -509,6 +509,15 @@
   gap: 10px;
 }
 
+.check input[type='checkbox'],
+.check input[type='radio'] {
+  appearance: auto;
+  -webkit-appearance: auto;
+  width: 18px;
+  height: 18px;
+  margin: 0;
+}
+
 .inline-status,
 .banner-msg {
   margin: 12px 0 0;
@@ -611,6 +620,10 @@
 
 .row-actions-compact {
   margin-top: 0;
+}
+
+.row-actions-compact .btn-xs {
+  min-width: 72px;
 }
 
 .toolbar-card {
@@ -793,6 +806,9 @@
 .fab-secondary {
   background: #0f172a;
   box-shadow: 0 8px 20px rgba(15, 23, 42, 0.25);
+  padding: 10px 14px;
+  font-size: 0.86rem;
+  min-height: 42px;
 }
 
 /* Sheet */
@@ -975,6 +991,10 @@ input[type='month'] {
 
   .bank-table td[data-label='פעולות'] {
     padding-top: 6px;
+  }
+
+  .bank-table td[data-label='פעולות'] .row-actions {
+    justify-content: flex-start;
   }
 
   .row-actions {

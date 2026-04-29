@@ -32,6 +32,7 @@ export interface FinanceEntry {
   receipt_url?: string | null
   is_fixed?: boolean
   is_auto_from_recurring?: boolean
+  installment_progress_label?: string | null
 }
 
 export interface MonthlyPlan {

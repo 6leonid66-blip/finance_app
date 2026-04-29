@@ -482,6 +482,9 @@ export function TransactionsView({
                     {entry.sourceEntry?.is_auto_from_recurring ? (
                       <span className="entry-badge entry-badge-fixed">קבוע-אוטומטי</span>
                     ) : null}
+                    {entry.sourceEntry?.installment_progress_label ? (
+                      <span className="entry-badge">{entry.sourceEntry.installment_progress_label}</span>
+                    ) : null}
                     {entry.kind === 'planned' ? <span className="entry-badge">מתוכנן</span> : null}
                   </td>
                   <td data-label="פעולות">

@@ -39,6 +39,21 @@ export function RecurringTemplatesPanel({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
 
+  const monthDiffInclusive = (startValue: string, endValue: string) => {
+    const [sy, sm] = startValue.split('-').map(Number)
+    const [ey, em] = endValue.split('-').map(Number)
+    if (!sy || !sm || !ey || !em) return 0
+    return Math.max(0, (ey - sy) * 12 + (em - sm) + 1)
+  }
+
+  const addMonths = (monthValue: string, months: number) => {
+    const [y, m] = monthValue.split('-').map(Number)
+    if (!y || !m) return monthValue
+    const d = new Date(y, m - 1, 1)
+    d.setMonth(d.getMonth() + months)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+  }
+
   const resolvedCategory = isOtherCategory(category) ? customCategory.trim() || 'אחר' : category
 
   const load = async () => {
@@ -75,11 +90,15 @@ export function RecurringTemplatesPanel({
       setError('בקבוע עם סכום קבוע חייב סכום חיובי')
       return
     }
-    if (endRule === 'fixed_installments' && (!Number(maxInstallments) || Number(maxInstallments) <= 0)) {
+    if (
+      endRule === 'fixed_installments' &&
+      (!Number(maxInstallments || monthDiffInclusive(startMonth, endMonth)) ||
+        Number(maxInstallments || monthDiffInclusive(startMonth, endMonth)) <= 0)
+    ) {
       setError('יש להזין מספר תשלומים חוקי')
       return
     }
-    if (endRule === 'until_month' && !endMonth) {
+    if (endRule !== 'unlimited' && !endMonth) {
       setError('יש לבחור חודש סיום')
       return
     }
@@ -95,8 +114,11 @@ export function RecurringTemplatesPanel({
         default_amount: mode === 'fixed_amount' ? amt : 0,
         template_start_month: monthValueToFirstDay(startMonth),
         end_rule: endRule,
-        end_month: endRule === 'until_month' ? monthValueToFirstDay(endMonth) : null,
-        max_installments: endRule === 'fixed_installments' ? Number(maxInstallments) : null,
+        end_month: endRule === 'unlimited' ? null : monthValueToFirstDay(endMonth),
+        max_installments:
+          endRule === 'fixed_installments'
+            ? Number(maxInstallments || monthDiffInclusive(startMonth, endMonth))
+            : null,
         auto_post_as_actual: autoPostAsActual,
         active: true,
       })
@@ -125,10 +147,15 @@ export function RecurringTemplatesPanel({
 
   const toggleAutoPost = async (row: RecurringTemplate) => {
     if (!supabase) return
-    await supabase
+    setError(null)
+    const { error: toggleError } = await supabase
       .from('recurring_templates')
       .update({ auto_post_as_actual: !row.auto_post_as_actual })
       .eq('id', row.id)
+    if (toggleError) {
+      setError(toggleError.message)
+      return
+    }
     await load()
     onTemplatesChanged()
   }
@@ -148,12 +175,30 @@ export function RecurringTemplatesPanel({
     setCustomCategory(ALL_PLAN_CATEGORIES.includes(row.category) ? '' : row.category)
     setLabel(row.label ?? '')
     setDefaultAmount(String(row.default_amount ?? 0))
-    setStartMonth(row.template_start_month?.slice(0, 7) ?? selectedMonth)
     setEndRule(row.end_rule)
-    setEndMonth(row.end_month?.slice(0, 7) ?? selectedMonth)
+    const startValue = row.template_start_month?.slice(0, 7) ?? selectedMonth
+    setStartMonth(startValue)
+    const endValue =
+      row.end_month?.slice(0, 7) ??
+      (row.end_rule === 'fixed_installments' && row.max_installments
+        ? addMonths(startValue, Math.max(0, row.max_installments - 1))
+        : selectedMonth)
+    setEndMonth(endValue)
     setMaxInstallments(row.max_installments ? String(row.max_installments) : '')
     setAutoPostAsActual(Boolean(row.auto_post_as_actual))
     setError(null)
+  }
+
+  const onStartMonthChange = (value: string) => {
+    setStartMonth(value)
+    if (endRule !== 'fixed_installments') return
+    const parsed = Number(maxInstallments)
+    if (Number.isFinite(parsed) && parsed > 0) {
+      setEndMonth(addMonths(value, parsed - 1))
+      return
+    }
+    const computed = monthDiffInclusive(value, endMonth)
+    if (computed > 0) setMaxInstallments(String(computed))
   }
 
   const saveEdit = async (e: FormEvent) => {
@@ -177,8 +222,11 @@ export function RecurringTemplatesPanel({
           default_amount: mode === 'fixed_amount' ? amt : 0,
           template_start_month: monthValueToFirstDay(startMonth),
           end_rule: endRule,
-          end_month: endRule === 'until_month' ? monthValueToFirstDay(endMonth) : null,
-          max_installments: endRule === 'fixed_installments' ? Number(maxInstallments) : null,
+          end_month: endRule === 'unlimited' ? null : monthValueToFirstDay(endMonth),
+          max_installments:
+            endRule === 'fixed_installments'
+              ? Number(maxInstallments || monthDiffInclusive(startMonth, endMonth))
+              : null,
           auto_post_as_actual: autoPostAsActual,
         })
         .eq('id', editingId)
@@ -223,6 +271,7 @@ export function RecurringTemplatesPanel({
                 <th>שיטה</th>
                 <th>סיום</th>
                 <th>אוטומטי לפועל</th>
+                <th>תשלומים</th>
                 <th>סטטוס</th>
                 <th>פעולות</th>
               </tr>
@@ -245,15 +294,21 @@ export function RecurringTemplatesPanel({
                         ? `עד ${row.end_month?.slice(0, 7) ?? '-'}`
                         : `${row.max_installments ?? 0} תשלומים`}
                   </td>
-                  <td data-label="אוטומטי לפועל">{row.auto_post_as_actual ? 'כן' : 'לא'}</td>
+                  <td data-label="אוטומטי לפועל">
+                    <button type="button" className="btn-secondary btn-xs" onClick={() => void toggleAutoPost(row)}>
+                      {row.auto_post_as_actual ? 'פעיל' : 'כבוי'}
+                    </button>
+                  </td>
+                  <td data-label="תשלומים">
+                    {row.end_rule === 'fixed_installments' && row.max_installments
+                      ? `מתוך ${row.max_installments}`
+                      : '—'}
+                  </td>
                   <td data-label="סטטוס">{row.active ? 'פעיל' : 'מושבת'}</td>
                   <td data-label="פעולות">
                     <div className="row-actions row-actions-compact">
                       <button type="button" className="btn-secondary btn-xs" onClick={() => startEdit(row)}>
                         ערוך
-                      </button>
-                      <button type="button" className="btn-secondary btn-xs" onClick={() => void toggleAutoPost(row)}>
-                        {row.auto_post_as_actual ? 'כבה אוטומטי' : 'הפעל אוטומטי'}
                       </button>
                       <button type="button" className="btn-secondary btn-xs" onClick={() => void toggleActive(row)}>
                         {row.active ? 'השבת' : 'הפעל'}
@@ -267,7 +322,7 @@ export function RecurringTemplatesPanel({
               ))}
               {!list.length && !loading ? (
                 <tr>
-                  <td colSpan={7} className="empty">
+                  <td colSpan={8} className="empty">
                     אין תבניות עדיין.
                   </td>
                 </tr>
@@ -365,7 +420,7 @@ export function RecurringTemplatesPanel({
             )}
             <label>
               מתחיל מחודש
-              <input type="month" value={startMonth} onChange={(e) => setStartMonth(e.target.value)} required />
+              <input type="month" value={startMonth} onChange={(e) => onStartMonthChange(e.target.value)} required />
             </label>
             <div className="segmented">
               <button
@@ -385,7 +440,13 @@ export function RecurringTemplatesPanel({
               <button
                 type="button"
                 className={endRule === 'fixed_installments' ? 'seg active' : 'seg'}
-                onClick={() => setEndRule('fixed_installments')}
+                onClick={() => {
+                  setEndRule('fixed_installments')
+                  if (!maxInstallments) {
+                    const computed = monthDiffInclusive(startMonth, endMonth)
+                    setMaxInstallments(String(computed || 1))
+                  }
+                }}
               >
                 מספר תשלומים
               </button>
@@ -397,17 +458,43 @@ export function RecurringTemplatesPanel({
               </label>
             ) : null}
             {endRule === 'fixed_installments' ? (
-              <label>
-                כמות תשלומים
-                <input
-                  type="number"
-                  min={1}
-                  step={1}
-                  value={maxInstallments}
-                  onChange={(e) => setMaxInstallments(e.target.value)}
-                  required
-                />
-              </label>
+              <>
+                <label>
+                  כמות תשלומים
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={maxInstallments}
+                    onChange={(e) => {
+                      const value = e.target.value
+                      setMaxInstallments(value)
+                      const parsed = Number(value)
+                      if (Number.isFinite(parsed) && parsed > 0) {
+                        setEndMonth(addMonths(startMonth, parsed - 1))
+                      }
+                    }}
+                    required
+                  />
+                </label>
+                <label>
+                  חודש סיום (מחושב/ניתן לעריכה)
+                  <input
+                    type="month"
+                    value={endMonth}
+                    onChange={(e) => {
+                      const value = e.target.value
+                      setEndMonth(value)
+                      const computed = monthDiffInclusive(startMonth, value)
+                      if (computed > 0) setMaxInstallments(String(computed))
+                    }}
+                    required
+                  />
+                </label>
+                <p className="muted small">
+                  אפשר לעדכן או את מספר התשלומים או את חודש הסיום — המערכת תחשב את השדה השני.
+                </p>
+              </>
             ) : null}
               <div className="edit-actions">
                 <button
