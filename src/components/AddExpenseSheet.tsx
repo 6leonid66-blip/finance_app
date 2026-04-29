@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { supabase } from '../supabase'
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, isOtherCategory } from '../constants/categories'
@@ -64,6 +64,8 @@ export function AddExpenseSheet({
   const [recordingVoice, setRecordingVoice] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
+  const spokenTextRef = useRef('')
 
   const categories = type === 'expense' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES
 
@@ -74,6 +76,9 @@ export function AddExpenseSheet({
     setCategory(initialType === 'expense' ? EXPENSE_CATEGORIES[0] : INCOME_CATEGORIES[0])
     setCustomCategory('')
     setRecordingVoice(false)
+    spokenTextRef.current = ''
+    recognitionRef.current?.stop()
+    recognitionRef.current = null
     setReceiptFile(null)
     setReceiptPreview(null)
     setError(null)
@@ -82,6 +87,8 @@ export function AddExpenseSheet({
   useEffect(() => {
     return () => {
       if (receiptPreview) URL.revokeObjectURL(receiptPreview)
+      recognitionRef.current?.stop()
+      recognitionRef.current = null
     }
   }, [receiptPreview])
 
@@ -193,8 +200,12 @@ export function AddExpenseSheet({
     }
   }
 
-  const startVoiceCapture = () => {
+  const toggleVoiceCapture = () => {
     if (type !== 'expense') return
+    if (recordingVoice && recognitionRef.current) {
+      recognitionRef.current.stop()
+      return
+    }
     const w = window as Window & {
       webkitSpeechRecognition?: SpeechRecognitionCtor
       SpeechRecognition?: SpeechRecognitionCtor
@@ -205,24 +216,31 @@ export function AddExpenseSheet({
       return
     }
     const recognition = new Ctor()
+    recognitionRef.current = recognition
+    spokenTextRef.current = ''
     recognition.lang = 'he-IL'
     recognition.interimResults = false
     recognition.maxAlternatives = 1
     setRecordingVoice(true)
     setError(null)
     recognition.onresult = (event) => {
-      const transcript = event.results?.[0]?.[0]?.transcript?.trim()
+      const transcript = event.results?.[event.results.length - 1]?.[0]?.transcript?.trim()
       if (!transcript) return
-      setNote((prev) => (prev.trim() ? prev : transcript))
-      void analyzeSpokenExpenseWithGemini({ spokenText: transcript, categories: EXPENSE_CATEGORIES })
-        .then((parsed) => applyGeminiResult(parsed))
-        .catch((err) => setError(err instanceof Error ? err.message : 'פענוח קול נכשל'))
+      spokenTextRef.current = `${spokenTextRef.current} ${transcript}`.trim()
     }
     recognition.onerror = () => {
       setError('הקלטה קולית נכשלה. נסה שוב.')
     }
     recognition.onend = () => {
       setRecordingVoice(false)
+      const spokenText = spokenTextRef.current.trim()
+      spokenTextRef.current = ''
+      recognitionRef.current = null
+      if (!spokenText) return
+      setNote((prev) => (prev.trim() ? prev : spokenText))
+      void analyzeSpokenExpenseWithGemini({ spokenText, categories: EXPENSE_CATEGORIES })
+        .then((parsed) => applyGeminiResult(parsed))
+        .catch((err) => setError(err instanceof Error ? err.message : 'פענוח קול נכשל'))
     }
     recognition.start()
   }
@@ -287,10 +305,9 @@ export function AddExpenseSheet({
               <button
                 type="button"
                 className={recordingVoice ? 'btn-danger voice-btn pulse' : 'btn-danger voice-btn'}
-                onClick={startVoiceCapture}
-                disabled={recordingVoice}
+                onClick={toggleVoiceCapture}
               >
-                {recordingVoice ? 'מקליט עכשיו… דבר חופשי' : '🎙️ הוצאה קולית מהירה'}
+                {recordingVoice ? '⏹ עצור הקלטה ומלא' : '🎙️ הוצאה קולית מהירה'}
               </button>
               <p className="muted small">הקלטה ממלאת אוטומטית סכום, קטגוריה ותיאור. נשאר רק לאשר.</p>
               <label className="receipt-upload">

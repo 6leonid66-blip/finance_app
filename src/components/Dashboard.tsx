@@ -89,13 +89,20 @@ export function Dashboard({
   }, [])
 
   const handleInstall = async () => {
-    if (!deferredPrompt) return
-    await deferredPrompt.prompt()
-    const choice = await deferredPrompt.userChoice
-    if (choice.outcome === 'accepted') {
-      setInstallHintText('האפליקציה תותקן כעת.')
+    if (deferredPrompt) {
+      await deferredPrompt.prompt()
+      const choice = await deferredPrompt.userChoice
+      if (choice.outcome === 'accepted') {
+        setInstallHintText('האפליקציה תותקן כעת.')
+      }
+      setDeferredPrompt(null)
+      return
     }
-    setDeferredPrompt(null)
+    if (defaultIosHint) {
+      setInstallHintText('iPhone: פתח Safari → Share → Add to Home Screen')
+      return
+    }
+    setInstallHintText('Android/Chrome: פתח תפריט ⋮ ואז Install app / Add to Home screen')
   }
 
   const copyHouseholdCode = async () => {
@@ -281,9 +288,9 @@ export function Dashboard({
         </div>
       </div>
 
-      <label className="month-field">
+      <label className="month-field month-field-dashboard">
         <span className="sr-only">חודש</span>
-        <MonthValuePicker value={selectedMonth} onChange={onMonthChange} />
+        <MonthValuePicker value={selectedMonth} onChange={onMonthChange} className="dashboard-month-picker" />
       </label>
       <div className="scope-switch card">
         <strong>תצוגה</strong>
@@ -325,7 +332,7 @@ export function Dashboard({
             type="button"
             className="btn-primary btn-xs"
             onClick={() => void handleInstall()}
-            disabled={!deferredPrompt || isStandalone}
+            disabled={isStandalone}
           >
             {isStandalone ? 'מותקן' : 'הורד אפליקציה'}
           </button>

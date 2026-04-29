@@ -66,10 +66,6 @@ function App() {
     const idSet = new Set(ids)
     return entries.filter((entry) => (entry.account_id ? idSet.has(entry.account_id) : scopeMode !== 'shared'))
   }, [entries, personalAccountIds, scopeMode, sharedAccountIds])
-  const personalCategories = useMemo(
-    () => new Set(scopedEntries.filter((entry) => !entry.planned).map((entry) => entry.category)),
-    [scopedEntries],
-  )
   const scopedHistoryEntries = useMemo(() => {
     const ids = scopeMode === 'shared' ? sharedAccountIds : personalAccountIds
     if (!ids.length) return historyEntries
@@ -768,7 +764,7 @@ function App() {
                 onTemplatesChanged={refreshMonth}
                 scopeMode={scopeMode}
                 onScopeModeChange={setScopeMode}
-                visibleCategories={personalCategories.size ? Array.from(personalCategories) : null}
+                visibleCategories={null}
               />
             ) : null}
 

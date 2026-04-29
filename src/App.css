@@ -271,6 +271,26 @@
   text-align: center;
 }
 
+.month-field-dashboard {
+  margin-bottom: 8px;
+}
+
+.dashboard-month-picker {
+  max-width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--card) 85%, var(--primary) 15%);
+}
+
+.dashboard-month-picker select {
+  font-weight: 700;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, var(--primary) 30%);
+  background: var(--card);
+  border-radius: 10px;
+  min-height: 40px;
+}
+
 .kpi-grid {
   display: grid;
   grid-template-columns: 1fr;
@@ -1205,6 +1225,10 @@ input[type='month'] {
 
   .bank-table-wrap {
     display: none;
+  }
+
+  .compact-table-wrap {
+    display: block;
   }
 
   .modal-backdrop {
