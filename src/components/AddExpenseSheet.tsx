@@ -166,7 +166,15 @@ export function AddExpenseSheet({
       setAmount(Number.isInteger(result.amount) ? String(result.amount) : result.amount.toFixed(2))
     }
     if (result.description) {
-      setNote((prev) => (prev.trim() ? prev : result.description ?? ''))
+      const aiNote = result.description.trim()
+      if (aiNote) {
+        setNote((prev) => {
+          const prevTrim = prev.trim()
+          if (!prevTrim) return aiNote
+          if (prevTrim === aiNote || prevTrim.includes(aiNote)) return prev
+          return `${aiNote} — ${prevTrim}`
+        })
+      }
     }
     if (result.suggestedCategory) {
       if ((categories as readonly string[]).includes(result.suggestedCategory)) {
@@ -188,7 +196,7 @@ export function AddExpenseSheet({
         setAmount(Number.isInteger(parsedAmount) ? String(parsedAmount) : parsedAmount.toFixed(2))
       }
     }
-    const matchedCategory = EXPENSE_CATEGORIES.find((c) => normalized.includes(c))
+    const matchedCategory = categories.find((c) => normalized.includes(c))
     if (matchedCategory) {
       setCategory(matchedCategory)
     }
@@ -218,7 +226,6 @@ export function AddExpenseSheet({
   }
 
   const toggleVoiceCapture = () => {
-    if (type !== 'expense') return
     if (recordingVoice && recognitionRef.current) {
       recognitionRef.current.stop()
       return
@@ -255,7 +262,7 @@ export function AddExpenseSheet({
       recognitionRef.current = null
       if (!spokenText) return
       setNote((prev) => (prev.trim() ? prev : spokenText))
-      void analyzeSpokenExpenseWithGemini({ spokenText, categories: EXPENSE_CATEGORIES })
+      void analyzeSpokenExpenseWithGemini({ spokenText, categories })
         .then((parsed) => applyGeminiResult(parsed))
         .catch((err) => {
           inferFromSpokenText(spokenText)
@@ -323,40 +330,44 @@ export function AddExpenseSheet({
             </select>
           </label>
 
-          {type === 'expense' ? (
-            <section className="receipt-box">
-              <h3 className="receipt-title">צילום / העלאת חשבונית</h3>
-              <button
-                type="button"
-                className={recordingVoice ? 'btn-danger voice-btn pulse' : 'btn-danger voice-btn'}
-                onClick={toggleVoiceCapture}
-              >
-                {recordingVoice ? '⏹ עצור הקלטה ומלא' : '🎙️ הוצאה קולית מהירה'}
-              </button>
-              <p className="muted small">הקלטה ממלאת אוטומטית סכום, קטגוריה ותיאור. נשאר רק לאשר.</p>
-              <label className="receipt-upload">
-                <input
-                  type="file"
-                  accept="image/*"
-                  capture="environment"
-                  onChange={(e) => onSelectReceipt(e.target.files?.[0])}
-                />
-                <span>צלם או בחר תמונה</span>
-              </label>
-              {receiptPreview ? (
-                <img src={receiptPreview} alt="receipt preview" className="receipt-preview" />
-              ) : null}
-              <button
-                type="button"
-                className="btn-secondary"
-                disabled={!receiptFile || analyzing}
-                onClick={() => void analyzeReceipt()}
-              >
-                {analyzing ? 'מנתח עם Gemini…' : 'ניתוח חוזר ידני'}
-              </button>
-              <p className="muted small">בעת צילום/העלאה מתבצע ניתוח אוטומטי. רק אשר ושמור.</p>
-            </section>
-          ) : null}
+          <section className="receipt-box">
+            <h3 className="receipt-title">
+              {type === 'expense' ? 'צילום / העלאת חשבונית' : 'צילום / העלאת אסמכתא להכנסה'}
+            </h3>
+            <button
+              type="button"
+              className={recordingVoice ? 'btn-danger voice-btn pulse' : 'btn-danger voice-btn'}
+              onClick={toggleVoiceCapture}
+            >
+              {recordingVoice
+                ? '⏹ עצור הקלטה ומלא'
+                : type === 'expense'
+                  ? '🎙️ הוצאה קולית מהירה'
+                  : '🎙️ הכנסה קולית מהירה'}
+            </button>
+            <p className="muted small">הקלטה ממלאת אוטומטית סכום, קטגוריה ותיאור. נשאר רק לאשר.</p>
+            <label className="receipt-upload">
+              <input
+                type="file"
+                accept="image/*"
+                capture="environment"
+                onChange={(e) => onSelectReceipt(e.target.files?.[0])}
+              />
+              <span>{type === 'expense' ? 'צלם או בחר תמונה של החשבונית' : 'צלם או בחר תמונה של האסמכתא'}</span>
+            </label>
+            {receiptPreview ? (
+              <img src={receiptPreview} alt="receipt preview" className="receipt-preview" />
+            ) : null}
+            <button
+              type="button"
+              className="btn-secondary"
+              disabled={!receiptFile || analyzing}
+              onClick={() => void analyzeReceipt()}
+            >
+              {analyzing ? 'מנתח עם Gemini…' : 'ניתוח חוזר ידני'}
+            </button>
+            <p className="muted small">בעת צילום/העלאה מתבצע ניתוח אוטומטי. רק אשר ושמור.</p>
+          </section>
 
           <label>
             קטגוריה

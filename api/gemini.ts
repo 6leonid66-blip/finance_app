@@ -123,11 +123,11 @@ function parseStrictJsonText(text: string): { amount?: unknown; description?: un
 }
 
 function buildReceiptPrompt(categories: readonly string[]): string {
-  return `Analyze this Hebrew receipt/check image and return only JSON.\nJSON keys:\n- amount: number (total amount in ILS)\n- description: short Hebrew description (max 40 chars)\n- suggestedCategory: choose one exact value from this list: ${categories.join(', ')}\nIf uncertain, set suggestedCategory to "אחר".`
+  return `Analyze this Hebrew receipt / check / income document image and return only JSON.\nJSON keys:\n- amount: number (total amount in ILS)\n- description: informative Hebrew description (up to 90 chars) explaining what this is. Include the store/payer name and the main items or service. Examples: "שופרסל - חלב, לחם, פירות", "משכורת מ-Acme בעמ", "תדלוק בסונול 30 ליטר".\n- suggestedCategory: choose one exact value from this list: ${categories.join(', ')}\nIf uncertain, set suggestedCategory to "אחר".`
 }
 
 function buildVoicePrompt(spokenText: string, categories: readonly string[]): string {
-  return `You are a Hebrew expense parser.\nConvert the spoken text into strict JSON only.\nJSON keys:\n- amount: number (ILS, required if detectable)\n- description: short Hebrew description (max 40 chars)\n- suggestedCategory: one exact value from this list: ${categories.join(', ')}\nIf uncertain about category set "אחר".\nSpoken text: """${spokenText}"""`
+  return `You are a Hebrew finance entry parser. The user dictated either an expense or an income.\nConvert the spoken text into strict JSON only.\nJSON keys:\n- amount: number (ILS, required if detectable)\n- description: informative Hebrew description (up to 90 chars) summarizing what the user said: who/where + what. Keep wording close to the user's intent. Example: "קניתי גבינות וגלידה ברמי לוי", "קיבלתי החזר ביטוח לאומי".\n- suggestedCategory: one exact value from this list: ${categories.join(', ')}\nIf uncertain about category set "אחר".\nSpoken text: """${spokenText}"""`
 }
 
 function buildAdvicePrompt(month: string, summary: string): string {
@@ -199,7 +199,7 @@ export default async function handler(request: Request): Promise<Response> {
         ok: true,
         kind: 'receipt',
         amount: normalizeAmount(parsed.amount),
-        description: clampString(parsed.description, 60),
+        description: clampString(parsed.description, 100),
         suggestedCategory: clampString(parsed.suggestedCategory, 40),
       },
       200,
@@ -233,7 +233,7 @@ export default async function handler(request: Request): Promise<Response> {
         ok: true,
         kind: 'voice',
         amount: normalizeAmount(parsed.amount),
-        description: clampString(parsed.description, 60),
+        description: clampString(parsed.description, 100),
         suggestedCategory: clampString(parsed.suggestedCategory, 40),
       },
       200,
