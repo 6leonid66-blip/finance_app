@@ -393,6 +393,44 @@
   grid-template-columns: 1fr;
 }
 
+.expense-distribution {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.expense-pie-wrap {
+  display: grid;
+  grid-template-columns: 170px 1fr;
+  gap: 12px;
+  align-items: center;
+}
+
+.expense-pie {
+  width: 170px;
+  height: 170px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+}
+
+.expense-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.expense-legend-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.insights-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .trend-legend {
   display: flex;
   gap: 10px;
@@ -490,6 +528,10 @@
 
 .feed-segmented {
   flex: 1;
+}
+
+.tx-month-picker {
+  min-width: 180px;
 }
 
 .fixed-planned-head {
@@ -592,6 +634,10 @@
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 12px;
+}
+
+.tx-mobile-list {
+  display: none;
 }
 
 .bank-table {
@@ -978,6 +1024,16 @@ input[type='month'] {
     height: 46px;
   }
 
+  .expense-pie-wrap {
+    grid-template-columns: 1fr;
+    justify-items: center;
+  }
+
+  .expense-pie {
+    width: 150px;
+    height: 150px;
+  }
+
   .bank-table thead {
     display: none;
   }
@@ -1053,6 +1109,57 @@ input[type='month'] {
 
   .month-picker {
     max-width: 100%;
+  }
+
+  .tx-month-picker {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .tx-mobile-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    list-style: none;
+    margin: 0 0 10px;
+    padding: 0;
+    max-height: 58dvh;
+    overflow: auto;
+  }
+
+  .tx-mobile-item {
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px;
+    background: var(--card);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .tx-mobile-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .tx-mobile-meta {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 0.78rem;
+    color: var(--muted);
+  }
+
+  .tx-mobile-note {
+    margin: 0;
+    font-size: 0.83rem;
+    color: var(--text);
+  }
+
+  .bank-table-wrap {
+    display: none;
   }
 
   .modal-backdrop {

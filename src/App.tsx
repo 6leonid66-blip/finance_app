@@ -706,6 +706,8 @@ function App() {
             {screen === 'transactions' ? (
               <TransactionsView
                 entries={entries}
+                selectedMonth={selectedMonth}
+                onSelectedMonthChange={setSelectedMonth}
                 householdId={household.id}
                 sessionUserId={sessionUserId}
                 accounts={accounts}

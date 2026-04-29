@@ -5,9 +5,12 @@ import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, isOtherCategory } from '../const
 import type { EntryType, FinanceEntry, FinancialAccount } from '../types'
 import { analyzeReceiptWithGemini } from '../lib/geminiReceipt'
 import { deleteReceiptAttachment, uploadReceiptAttachment } from '../lib/receiptStorage'
+import { MonthValuePicker } from './MonthValuePicker'
 
 type TransactionsViewProps = {
   entries: FinanceEntry[]
+  selectedMonth: string
+  onSelectedMonthChange: (month: string) => void
   householdId: string
   sessionUserId: string
   accounts: FinancialAccount[]
@@ -37,6 +40,8 @@ function ownerLabel(entry: FinanceEntry) {
 
 export function TransactionsView({
   entries,
+  selectedMonth,
+  onSelectedMonthChange,
   householdId,
   sessionUserId,
   accounts,
@@ -104,6 +109,12 @@ export function TransactionsView({
     }))
     return actualItems.sort((a, b) => b.occurred_on.localeCompare(a.occurred_on))
   }, [sortedEntries])
+
+  const formatShortDate = (dateValue: string) => {
+    const d = new Date(`${dateValue}T00:00:00`)
+    if (Number.isNaN(d.getTime())) return dateValue
+    return d.toLocaleDateString('he-IL', { day: '2-digit', month: '2-digit' })
+  }
 
   const filteredEntries = useMemo(() => {
     if (entryFilter === 'expenses') return allFeedItems.filter((entry) => entry.type === 'expense')
@@ -354,6 +365,7 @@ export function TransactionsView({
       <article className="card card-form bank-feed-head">
         <div className="feed-filter-row">
           <strong>פיד תנועות</strong>
+          <MonthValuePicker value={selectedMonth} onChange={onSelectedMonthChange} className="tx-month-picker" />
           <div className="segmented feed-segmented">
             <button
               type="button"
@@ -385,6 +397,46 @@ export function TransactionsView({
 
       <article className="card card-form">
         <h3 className="card-heading">טבלת תנועות בנקאית (תנועות אמת בלבד)</h3>
+        <ul className="tx-mobile-list">
+          {filteredEntries.map((entry) => (
+            <li key={`m-${entry.id}`} className="tx-mobile-item">
+              <div className="tx-mobile-top">
+                <strong>{entry.category}</strong>
+                <span className={entry.type === 'expense' ? 'amount-expense' : 'amount-income'}>
+                  {entry.amount.toLocaleString()} ₪
+                </span>
+              </div>
+              <div className="tx-mobile-meta">
+                <span>{formatShortDate(entry.occurred_on)}</span>
+                <span>{entry.ownerName || 'משתמש'}</span>
+                {entry.accountName ? <span>{entry.accountName}</span> : null}
+              </div>
+              {entry.note ? <p className="tx-mobile-note">{entry.note}</p> : null}
+              <div className="entry-badges">
+                <span className="entry-badge">בפועל</span>
+                {entry.sourceEntry?.is_auto_from_recurring ? (
+                  <span className="entry-badge entry-badge-fixed">קבוע-אוטומטי</span>
+                ) : null}
+                {entry.sourceEntry?.installment_progress_label ? (
+                  <span className="entry-badge">{entry.sourceEntry.installment_progress_label}</span>
+                ) : null}
+              </div>
+              <div className="row-actions">
+                {entry.sourceEntry ? (
+                  <button type="button" className="btn-secondary btn-xs" onClick={() => beginEdit(entry.sourceEntry!)}>
+                    ערוך
+                  </button>
+                ) : null}
+                {entry.sourceEntry ? (
+                  <button type="button" className="btn-danger btn-xs" onClick={() => void removeEntry(entry.sourceEntry!)}>
+                    מחק
+                  </button>
+                ) : null}
+              </div>
+            </li>
+          ))}
+          {!filteredEntries.length ? <li className="empty">אין תנועות להצגה במסנן הנוכחי.</li> : null}
+        </ul>
         <div className="bank-table-wrap">
           <table className="bank-table">
             <thead>

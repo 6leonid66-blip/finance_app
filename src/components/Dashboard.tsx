@@ -63,6 +63,7 @@ export function Dashboard({
   const [joinCode, setJoinCode] = useState('')
   const [joinLoading, setJoinLoading] = useState(false)
   const [joinMessage, setJoinMessage] = useState<string | null>(null)
+  const [showHouseholdTools, setShowHouseholdTools] = useState(false)
 
   useEffect(() => {
     const onBeforeInstall = (event: Event) => {
@@ -147,6 +148,23 @@ export function Dashboard({
       }),
     [accounts, entries],
   )
+  const expenseDistribution = useMemo(() => {
+    const expenses = entries.filter((entry) => entry.type === 'expense' && !entry.planned)
+    const byCategory = new Map<string, number>()
+    expenses.forEach((entry) => {
+      byCategory.set(entry.category, (byCategory.get(entry.category) ?? 0) + entry.amount)
+    })
+    const total = expenses.reduce((sum, entry) => sum + entry.amount, 0)
+    const rows = Array.from(byCategory.entries())
+      .map(([category, amount]) => ({
+        category,
+        amount,
+        pctExpense: total > 0 ? (amount / total) * 100 : 0,
+        pctIncome: actualIncome > 0 ? (amount / actualIncome) * 100 : 0,
+      }))
+      .sort((a, b) => b.amount - a.amount)
+    return { rows, total }
+  }, [entries, actualIncome])
   const monthlyTrend = useMemo(() => {
     const [year, month] = selectedMonth.split('-').map(Number)
     const selectedIndex = year * 12 + (month - 1)
@@ -195,6 +213,48 @@ export function Dashboard({
     )
     return maxValue
   }, [monthlyTrend])
+  const insights = useMemo(() => {
+    const monthKey = selectedMonth
+    const [year, month] = monthKey.split('-').map(Number)
+    const prevDate = new Date(year, month - 2, 1)
+    const prevKey = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`
+    const currentRows = historyEntries.filter((entry) => !entry.planned && entry.occurred_on.startsWith(monthKey))
+    const prevRows = historyEntries.filter((entry) => !entry.planned && entry.occurred_on.startsWith(prevKey))
+    const currentIncome = currentRows.filter((e) => e.type === 'income').reduce((s, e) => s + e.amount, 0)
+    const currentExpense = currentRows.filter((e) => e.type === 'expense').reduce((s, e) => s + e.amount, 0)
+    const prevExpense = prevRows.filter((e) => e.type === 'expense').reduce((s, e) => s + e.amount, 0)
+    const topCategory = expenseDistribution.rows[0]
+    const rows: string[] = []
+    if (topCategory) {
+      rows.push(`הוצאה מובילה: ${topCategory.category} (${topCategory.amount.toLocaleString()} ₪)`)
+    }
+    if (prevExpense > 0) {
+      const change = ((currentExpense - prevExpense) / prevExpense) * 100
+      rows.push(`שינוי הוצאות מול חודש קודם: ${change >= 0 ? '+' : ''}${change.toFixed(0)}%`)
+    }
+    if (currentIncome > 0) {
+      const savingRate = ((currentIncome - currentExpense) / currentIncome) * 100
+      rows.push(`שיעור חיסכון חודשי משוער: ${savingRate.toFixed(0)}%`)
+    }
+    if (!rows.length) rows.push('אין מספיק נתונים לניתוח החודש.')
+    return rows
+  }, [historyEntries, selectedMonth, expenseDistribution.rows])
+  const pieGradient = useMemo(() => {
+    if (!expenseDistribution.rows.length || expenseDistribution.total <= 0) {
+      return 'conic-gradient(#1f2937 0deg 360deg)'
+    }
+    const palette = ['#38bdf8', '#34d399', '#f59e0b', '#f97316', '#a78bfa', '#f472b6', '#fb7185', '#22d3ee']
+    let start = 0
+    const parts = expenseDistribution.rows.map((row, index) => {
+      const span = (row.amount / expenseDistribution.total) * 360
+      const color = palette[index % palette.length]
+      const end = start + span
+      const part = `${color} ${start.toFixed(2)}deg ${end.toFixed(2)}deg`
+      start = end
+      return part
+    })
+    return `conic-gradient(${parts.join(', ')})`
+  }, [expenseDistribution])
 
   return (
     <div className="dashboard">
@@ -203,9 +263,14 @@ export function Dashboard({
           <h1 className="dashboard-title">הבית שלנו</h1>
           <p className="dashboard-sub">סיכום חודשי — מתוכנן מול בפועל</p>
         </div>
-        <button type="button" className="btn-ghost" onClick={() => void onSignOut()}>
-          יציאה
-        </button>
+        <div className="row-actions">
+          <button type="button" className="btn-secondary btn-xs" onClick={() => setShowHouseholdTools(true)}>
+            שיתוף בית
+          </button>
+          <button type="button" className="btn-ghost" onClick={() => void onSignOut()}>
+            יציאה
+          </button>
+        </div>
       </div>
 
       <label className="month-field">
@@ -233,31 +298,6 @@ export function Dashboard({
       ) : null}
 
       {loading ? <p className="muted">טוען נתונים…</p> : null}
-
-      <section className="card card-form">
-        <h2 className="card-heading">שיתוף בית / חיבור חשבון שני</h2>
-        <p className="muted small">קוד הבית שלך: <code>{householdCode}</code></p>
-        <div className="row-actions">
-          <button type="button" className="btn-secondary btn-xs" onClick={() => void copyHouseholdCode()}>
-            העתק קוד
-          </button>
-        </div>
-        <label className="stack" style={{ marginTop: 8 }}>
-          <span>הצטרפות לבית קיים לפי קוד</span>
-          <input
-            type="text"
-            value={joinCode}
-            onChange={(e) => setJoinCode(e.target.value)}
-            placeholder="הדבק כאן קוד בית"
-          />
-        </label>
-        <div className="row-actions">
-          <button type="button" className="btn-primary btn-xs" disabled={joinLoading} onClick={() => void submitJoinCode()}>
-            {joinLoading ? 'מחבר…' : 'חבר לחשבון המשפחתי'}
-          </button>
-        </div>
-        {joinMessage ? <p className="inline-status">{joinMessage}</p> : null}
-      </section>
 
       <div className="kpi-grid">
         <article className="kpi-card kpi-income">
@@ -301,6 +341,34 @@ export function Dashboard({
           <strong>{balancePlanned.toLocaleString()} ₪</strong>
         </div>
       </div>
+      <section className="card expense-distribution">
+        <h2 className="card-heading">חלוקת הוצאות לפי קטגוריה</h2>
+        <div className="expense-pie-wrap">
+          <div className="expense-pie" style={{ background: pieGradient }} aria-label="חלוקת הוצאות" />
+          <div className="expense-legend">
+            {expenseDistribution.rows.slice(0, 8).map((row) => (
+              <div key={row.category} className="expense-legend-row">
+                <strong>{row.category}</strong>
+                <span>{row.amount.toLocaleString()} ₪</span>
+                <small>
+                  {row.pctExpense.toFixed(0)}% מההוצאות · {row.pctIncome.toFixed(0)}% מההכנסות
+                </small>
+              </div>
+            ))}
+            {!expenseDistribution.rows.length ? <p className="muted">אין הוצאות בפועל לחודש זה.</p> : null}
+          </div>
+        </div>
+      </section>
+      <section className="card">
+        <h2 className="card-heading">תובנות חכמות לחודש</h2>
+        <div className="insights-list">
+          {insights.map((insight) => (
+            <p key={insight} className="muted">
+              {insight}
+            </p>
+          ))}
+        </div>
+      </section>
 
       <section className="trend-section card">
         <h2 className="card-heading">מצטבר 12 חודשים</h2>
@@ -384,6 +452,39 @@ export function Dashboard({
           ) : null}
         </div>
       </section>
+      {showHouseholdTools ? (
+        <div className="modal-backdrop" onClick={() => setShowHouseholdTools(false)}>
+          <article className="card card-form modal-card" onClick={(e) => e.stopPropagation()}>
+            <h2 className="card-heading">שיתוף בית / חיבור חשבון שני</h2>
+            <p className="muted small">
+              קוד הבית שלך: <code>{householdCode}</code>
+            </p>
+            <div className="row-actions">
+              <button type="button" className="btn-secondary btn-xs" onClick={() => void copyHouseholdCode()}>
+                העתק קוד
+              </button>
+            </div>
+            <label className="stack" style={{ marginTop: 8 }}>
+              <span>הצטרפות לבית קיים לפי קוד</span>
+              <input
+                type="text"
+                value={joinCode}
+                onChange={(e) => setJoinCode(e.target.value)}
+                placeholder="הדבק כאן קוד בית"
+              />
+            </label>
+            <div className="row-actions">
+              <button type="button" className="btn-primary btn-xs" disabled={joinLoading} onClick={() => void submitJoinCode()}>
+                {joinLoading ? 'מחבר…' : 'חבר לחשבון המשפחתי'}
+              </button>
+              <button type="button" className="btn-secondary btn-xs" onClick={() => setShowHouseholdTools(false)}>
+                סגור
+              </button>
+            </div>
+            {joinMessage ? <p className="inline-status">{joinMessage}</p> : null}
+          </article>
+        </div>
+      ) : null}
     </div>
   )
 }
