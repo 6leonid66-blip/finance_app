@@ -2,7 +2,12 @@ export const config = {
   runtime: 'edge',
 }
 
-const GEMINI_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-flash-8b']
+const GEMINI_MODELS = [
+  'gemini-flash-latest',
+  'gemini-2.5-flash',
+  'gemini-2.5-flash-lite',
+  'gemini-flash-lite-latest',
+]
 
 type GeminiResponseShape = {
   candidates?: Array<{
