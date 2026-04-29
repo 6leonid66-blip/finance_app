@@ -13,6 +13,7 @@ import { monthValueToRange } from './lib/month'
 import { getReceiptPublicUrl } from './lib/receiptStorage'
 
 function App() {
+  const [scopeMode, setScopeMode] = useState<'personal' | 'shared'>('personal')
   const [screen, setScreen] = useState<AppScreen>('transactions')
   const [sheetOpen, setSheetOpen] = useState(false)
   const [sheetType, setSheetType] = useState<'expense' | 'income'>('expense')
@@ -43,16 +44,42 @@ function App() {
   const [selectedAccountId, setSelectedAccountId] = useState<string>('')
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
 
+  const personalAccountIds = useMemo(
+    () =>
+      accounts
+        .filter((account) => !account.is_shared && account.owner_user_id === sessionUserId)
+        .map((account) => account.id),
+    [accounts, sessionUserId],
+  )
+  const sharedAccountIds = useMemo(
+    () => accounts.filter((account) => account.is_shared).map((account) => account.id),
+    [accounts],
+  )
+  const scopedEntries = useMemo(() => {
+    const ids = scopeMode === 'shared' ? sharedAccountIds : personalAccountIds
+    if (!ids.length) return entries
+    const idSet = new Set(ids)
+    return entries.filter((entry) => (entry.account_id ? idSet.has(entry.account_id) : scopeMode !== 'shared'))
+  }, [entries, personalAccountIds, scopeMode, sharedAccountIds])
+  const personalCategories = useMemo(
+    () => new Set(scopedEntries.filter((entry) => !entry.planned).map((entry) => entry.category)),
+    [scopedEntries],
+  )
+  const scopedPlans = useMemo(() => {
+    if (!plans.length) return plans
+    if (personalCategories.size === 0) return plans
+    return plans.filter((plan) => personalCategories.has(plan.category))
+  }, [personalCategories, plans])
   const actualIncome = useMemo(
-    () => entries.filter((e) => e.type === 'income' && !e.planned).reduce((s, e) => s + e.amount, 0),
-    [entries],
+    () => scopedEntries.filter((e) => e.type === 'income' && !e.planned).reduce((s, e) => s + e.amount, 0),
+    [scopedEntries],
   )
   const actualExpense = useMemo(
-    () => entries.filter((e) => e.type === 'expense' && !e.planned).reduce((s, e) => s + e.amount, 0),
-    [entries],
+    () => scopedEntries.filter((e) => e.type === 'expense' && !e.planned).reduce((s, e) => s + e.amount, 0),
+    [scopedEntries],
   )
-  const plannedIncome = useMemo(() => plans.reduce((s, p) => s + p.planned_income, 0), [plans])
-  const plannedExpense = useMemo(() => plans.reduce((s, p) => s + p.planned_expense, 0), [plans])
+  const plannedIncome = useMemo(() => scopedPlans.reduce((s, p) => s + p.planned_income, 0), [scopedPlans])
+  const plannedExpense = useMemo(() => scopedPlans.reduce((s, p) => s + p.planned_expense, 0), [scopedPlans])
 
   const describeError = (error: unknown) => {
     if (error instanceof Error) return error.message
@@ -691,7 +718,7 @@ function App() {
                 actualExpense={actualExpense}
                 plannedIncome={plannedIncome}
                 plannedExpense={plannedExpense}
-                entries={entries}
+                entries={scopedEntries}
                 historyEntries={historyEntries}
                 accounts={accounts}
                 selectedAccountId={selectedAccountId}
@@ -700,12 +727,14 @@ function App() {
                 onSignOut={signOut}
                 householdCode={household.id}
                 onJoinByCode={joinHouseholdByCode}
+                scopeMode={scopeMode}
+                onScopeModeChange={setScopeMode}
               />
             ) : null}
 
             {screen === 'transactions' ? (
               <TransactionsView
-                entries={entries}
+                entries={scopedEntries}
                 selectedMonth={selectedMonth}
                 onSelectedMonthChange={setSelectedMonth}
                 householdId={household.id}
@@ -715,16 +744,20 @@ function App() {
                 onSelectedAccountIdChange={setSelectedAccountId}
                 loading={loadingData}
                 onRefresh={refreshMonth}
+                scopeMode={scopeMode}
+                onScopeModeChange={setScopeMode}
               />
             ) : null}
 
             {screen === 'planning' ? (
               <PlanningView
-                plans={plans}
+                plans={scopedPlans}
                 householdId={household.id}
                 selectedMonth={selectedMonth}
                 loading={loadingData}
                 onRefresh={refreshMonth}
+                scopeMode={scopeMode}
+                onScopeModeChange={setScopeMode}
               />
             ) : null}
 
@@ -733,6 +766,9 @@ function App() {
                 householdId={household.id}
                 selectedMonth={selectedMonth}
                 onTemplatesChanged={refreshMonth}
+                scopeMode={scopeMode}
+                onScopeModeChange={setScopeMode}
+                visibleCategories={personalCategories.size ? Array.from(personalCategories) : null}
               />
             ) : null}
 

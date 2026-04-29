@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { supabase } from '../supabase'
 import { ALL_PLAN_CATEGORIES, isOtherCategory } from '../constants/categories'
@@ -15,12 +15,18 @@ type RecurringTemplatesPanelProps = {
   householdId: string
   selectedMonth: string
   onTemplatesChanged: () => void
+  scopeMode: 'personal' | 'shared'
+  onScopeModeChange: (scope: 'personal' | 'shared') => void
+  visibleCategories: string[] | null
 }
 
 export function RecurringTemplatesPanel({
   householdId,
   selectedMonth,
   onTemplatesChanged,
+  scopeMode,
+  onScopeModeChange,
+  visibleCategories,
 }: RecurringTemplatesPanelProps) {
   const [list, setList] = useState<RecurringTemplate[]>([])
   const [loading, setLoading] = useState(true)
@@ -56,6 +62,11 @@ export function RecurringTemplatesPanel({
   }
 
   const resolvedCategory = isOtherCategory(category) ? customCategory.trim() || 'אחר' : category
+  const filteredList = useMemo(() => {
+    if (!visibleCategories || !visibleCategories.length) return list
+    const visibleSet = new Set(visibleCategories)
+    return list.filter((row) => visibleSet.has(row.category))
+  }, [list, visibleCategories])
 
   const load = async () => {
     if (!supabase) return
@@ -248,6 +259,25 @@ export function RecurringTemplatesPanel({
       <h2 className="screen-title">הוצאות והכנסות קבועות</h2>
       <p className="panel-intro">ניהול קבועים מלא עם כללי תוקף, תשלומים וסנכרון אוטומטי לתכנון.</p>
       <p className="muted small">חודש נוכחי לבדיקה: {selectedMonth}</p>
+      <div className="scope-switch card">
+        <strong>תצוגה</strong>
+        <div className="segmented">
+          <button
+            type="button"
+            className={scopeMode === 'personal' ? 'seg active' : 'seg'}
+            onClick={() => onScopeModeChange('personal')}
+          >
+            אישי
+          </button>
+          <button
+            type="button"
+            className={scopeMode === 'shared' ? 'seg active' : 'seg'}
+            onClick={() => onScopeModeChange('shared')}
+          >
+            משותף
+          </button>
+        </div>
+      </div>
 
       {loading ? <p className="muted">טוען…</p> : null}
       {error ? <p className="sheet-error">{error}</p> : null}
@@ -278,7 +308,7 @@ export function RecurringTemplatesPanel({
               </tr>
             </thead>
             <tbody>
-              {list.map((row) => (
+              {filteredList.map((row) => (
                 <tr key={row.id} className={row.active ? '' : 'inactive'}>
                   <td data-label="קטגוריה">
                     {row.category}
@@ -321,10 +351,10 @@ export function RecurringTemplatesPanel({
                   </td>
                 </tr>
               ))}
-              {!list.length && !loading ? (
+              {!filteredList.length && !loading ? (
                 <tr>
                   <td colSpan={8} className="empty">
-                    אין תבניות עדיין.
+                    אין קבועים להצגה בתצוגה הנוכחית.
                   </td>
                 </tr>
               ) : null}

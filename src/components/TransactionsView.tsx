@@ -18,6 +18,8 @@ type TransactionsViewProps = {
   onSelectedAccountIdChange: (id: string) => void
   loading: boolean
   onRefresh: () => void
+  scopeMode: 'personal' | 'shared'
+  onScopeModeChange: (scope: 'personal' | 'shared') => void
 }
 type EntryFilter = 'expenses' | 'income' | 'all'
 type FeedItem = {
@@ -49,6 +51,8 @@ export function TransactionsView({
   onSelectedAccountIdChange,
   loading,
   onRefresh,
+  scopeMode,
+  onScopeModeChange,
 }: TransactionsViewProps) {
   const [type, setType] = useState<EntryType>('expense')
   const [category, setCategory] = useState<string>(EXPENSE_CATEGORIES[0])
@@ -366,6 +370,22 @@ export function TransactionsView({
         <div className="feed-filter-row">
           <strong>פיד תנועות</strong>
           <MonthValuePicker value={selectedMonth} onChange={onSelectedMonthChange} className="tx-month-picker" />
+          <div className="segmented scope-mini">
+            <button
+              type="button"
+              className={scopeMode === 'personal' ? 'seg active' : 'seg'}
+              onClick={() => onScopeModeChange('personal')}
+            >
+              אישי
+            </button>
+            <button
+              type="button"
+              className={scopeMode === 'shared' ? 'seg active' : 'seg'}
+              onClick={() => onScopeModeChange('shared')}
+            >
+              משותף
+            </button>
+          </div>
           <div className="segmented feed-segmented">
             <button
               type="button"

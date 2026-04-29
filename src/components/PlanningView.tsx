@@ -18,9 +18,19 @@ type PlanningViewProps = {
   selectedMonth: string
   loading: boolean
   onRefresh: () => void
+  scopeMode: 'personal' | 'shared'
+  onScopeModeChange: (scope: 'personal' | 'shared') => void
 }
 
-export function PlanningView({ plans, householdId, selectedMonth, loading, onRefresh }: PlanningViewProps) {
+export function PlanningView({
+  plans,
+  householdId,
+  selectedMonth,
+  loading,
+  onRefresh,
+  scopeMode,
+  onScopeModeChange,
+}: PlanningViewProps) {
   const [recurringList, setRecurringList] = useState<RecurringTemplate[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
@@ -220,6 +230,25 @@ export function PlanningView({ plans, householdId, selectedMonth, loading, onRef
     <div className="screen-pad">
       <h2 className="screen-title">תכנון חודשי</h2>
       <p className="panel-intro">תכנון שוטף עם אפשרות להחיל גם הגדרת קבועים מאותו טופס.</p>
+      <div className="scope-switch card">
+        <strong>תצוגה</strong>
+        <div className="segmented">
+          <button
+            type="button"
+            className={scopeMode === 'personal' ? 'seg active' : 'seg'}
+            onClick={() => onScopeModeChange('personal')}
+          >
+            אישי
+          </button>
+          <button
+            type="button"
+            className={scopeMode === 'shared' ? 'seg active' : 'seg'}
+            onClick={() => onScopeModeChange('shared')}
+          >
+            משותף
+          </button>
+        </div>
+      </div>
       {loading ? <p className="muted">טוען…</p> : null}
 
       <article className="card card-form toolbar-card recurring-toolbar">

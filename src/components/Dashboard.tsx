@@ -18,6 +18,8 @@ type DashboardProps = {
   onSignOut: () => void
   householdCode: string
   onJoinByCode: (code: string) => Promise<{ ok: boolean; message: string }>
+  scopeMode: 'personal' | 'shared'
+  onScopeModeChange: (scope: 'personal' | 'shared') => void
 }
 
 function pct(actual: number, planned: number) {
@@ -46,6 +48,8 @@ export function Dashboard({
   onSignOut,
   householdCode,
   onJoinByCode,
+  scopeMode,
+  onScopeModeChange,
 }: DashboardProps) {
   const defaultDismissed =
     typeof window !== 'undefined' ? localStorage.getItem('pwa-install-dismissed') === '1' : false
@@ -277,6 +281,25 @@ export function Dashboard({
         <span className="sr-only">חודש</span>
         <MonthValuePicker value={selectedMonth} onChange={onMonthChange} />
       </label>
+      <div className="scope-switch card">
+        <strong>תצוגה</strong>
+        <div className="segmented">
+          <button
+            type="button"
+            className={scopeMode === 'personal' ? 'seg active' : 'seg'}
+            onClick={() => onScopeModeChange('personal')}
+          >
+            אישי
+          </button>
+          <button
+            type="button"
+            className={scopeMode === 'shared' ? 'seg active' : 'seg'}
+            onClick={() => onScopeModeChange('shared')}
+          >
+            משותף
+          </button>
+        </div>
+      </div>
 
       {showInstallHint && !installDismissed ? (
         <section className="install-cta card">
