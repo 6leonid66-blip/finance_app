@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { supabase } from '../supabase'
 import { ALL_PLAN_CATEGORIES, isOtherCategory } from '../constants/categories'
+import { MonthValuePicker } from './MonthValuePicker'
 import type {
   RecurringDirection,
   RecurringEndRule,
@@ -420,7 +421,7 @@ export function RecurringTemplatesPanel({
             )}
             <label>
               מתחיל מחודש
-              <input type="month" value={startMonth} onChange={(e) => onStartMonthChange(e.target.value)} required />
+              <MonthValuePicker value={startMonth} onChange={onStartMonthChange} />
             </label>
             <div className="segmented">
               <button
@@ -454,7 +455,7 @@ export function RecurringTemplatesPanel({
             {endRule === 'until_month' ? (
               <label>
                 חודש סיום
-                <input type="month" value={endMonth} onChange={(e) => setEndMonth(e.target.value)} required />
+                <MonthValuePicker value={endMonth} onChange={setEndMonth} />
               </label>
             ) : null}
             {endRule === 'fixed_installments' ? (
@@ -479,16 +480,13 @@ export function RecurringTemplatesPanel({
                 </label>
                 <label>
                   חודש סיום (מחושב/ניתן לעריכה)
-                  <input
-                    type="month"
+                  <MonthValuePicker
                     value={endMonth}
-                    onChange={(e) => {
-                      const value = e.target.value
+                    onChange={(value) => {
                       setEndMonth(value)
                       const computed = monthDiffInclusive(startMonth, value)
                       if (computed > 0) setMaxInstallments(String(computed))
                     }}
-                    required
                   />
                 </label>
                 <p className="muted small">

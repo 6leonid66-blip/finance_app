@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FinanceEntry, FinancialAccount } from '../types'
+import { MonthValuePicker } from './MonthValuePicker'
 
 type DashboardProps = {
   selectedMonth: string
@@ -209,7 +210,7 @@ export function Dashboard({
 
       <label className="month-field">
         <span className="sr-only">חודש</span>
-        <input type="month" value={selectedMonth} onChange={(e) => onMonthChange(e.target.value)} />
+        <MonthValuePicker value={selectedMonth} onChange={onMonthChange} />
       </label>
 
       {showInstallHint && !installDismissed ? (

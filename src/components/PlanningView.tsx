@@ -3,6 +3,7 @@ import type { FormEvent } from 'react'
 import { supabase } from '../supabase'
 import { ALL_PLAN_CATEGORIES, isOtherCategory } from '../constants/categories'
 import { monthValueToFirstDay } from '../lib/month'
+import { MonthValuePicker } from './MonthValuePicker'
 import type {
   MonthlyPlan,
   RecurringDirection,
@@ -388,7 +389,7 @@ export function PlanningView({ plans, householdId, selectedMonth, loading, onRef
                 ) : null}
                 <label>
                   מתחיל מחודש
-                  <input type="month" value={startMonth} onChange={(e) => setStartMonth(e.target.value)} required />
+                  <MonthValuePicker value={startMonth} onChange={setStartMonth} />
                 </label>
                 <div className="segmented">
                   <button
@@ -416,7 +417,7 @@ export function PlanningView({ plans, householdId, selectedMonth, loading, onRef
                 {endRule === 'until_month' ? (
                   <label>
                     חודש סיום
-                    <input type="month" value={endMonth} onChange={(e) => setEndMonth(e.target.value)} required />
+                    <MonthValuePicker value={endMonth} onChange={setEndMonth} />
                   </label>
                 ) : null}
                 {endRule === 'fixed_installments' ? (

@@ -25,12 +25,17 @@ function App() {
   const [authError, setAuthError] = useState<string | null>(null)
   const [authInfo, setAuthInfo] = useState<string | null>(null)
   const [resendingVerification, setResendingVerification] = useState(false)
+  const [sendingResetEmail, setSendingResetEmail] = useState(false)
+  const [resetEmailSent, setResetEmailSent] = useState(false)
+  const [passwordRecoveryMode, setPasswordRecoveryMode] = useState(false)
+  const [resetPassword, setResetPassword] = useState('')
+  const [resetPasswordConfirm, setResetPasswordConfirm] = useState('')
+  const [updatingPassword, setUpdatingPassword] = useState(false)
   const [household, setHousehold] = useState<Household | null>(null)
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7))
   const [loadingData, setLoadingData] = useState(false)
   const [entries, setEntries] = useState<FinanceEntry[]>([])
   const [plans, setPlans] = useState<MonthlyPlan[]>([])
-  const [recurringKeys, setRecurringKeys] = useState<string[]>([])
   const [historyEntries, setHistoryEntries] = useState<
     Array<{ type: 'income' | 'expense'; amount: number; occurred_on: string; planned: boolean }>
   >([])
@@ -334,8 +339,6 @@ function App() {
           }>
         ).map((row) => [row.id, row]),
       )
-      setRecurringKeys(Array.from(recurringKey))
-
       setEntries(
         rows.map((row) => {
           const p = profileMap.get(row.owner_id)
@@ -396,6 +399,11 @@ function App() {
       })
       .finally(() => setAuthLoading(false))
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (_event === 'PASSWORD_RECOVERY') {
+        setPasswordRecoveryMode(true)
+        setAuthError(null)
+        setAuthInfo('הזן סיסמה חדשה ואשר כדי להשלים איפוס.')
+      }
       const userId = session?.user.id ?? null
       setSessionUserId(userId)
       setSessionUserEmail(session?.user.email ?? null)
@@ -403,7 +411,6 @@ function App() {
         setHousehold(null)
         setEntries([])
         setPlans([])
-        setRecurringKeys([])
         setHistoryEntries([])
         setAccounts([])
         setSelectedAccountId('')
@@ -473,6 +480,54 @@ function App() {
     setResendingVerification(false)
   }
 
+  const sendPasswordResetEmail = async () => {
+    if (!supabase || !email.trim()) {
+      setAuthError('הזן אימייל כדי לשלוח קישור איפוס')
+      return
+    }
+    setSendingResetEmail(true)
+    setAuthError(null)
+    setAuthInfo(null)
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: getAuthRedirectTo(),
+    })
+    if (error) {
+      setAuthError(error.message)
+    } else {
+      setResetEmailSent(true)
+      setAuthInfo('נשלח מייל איפוס סיסמה. אם לא הגיע, לחץ שוב כדי לשלוח מחדש.')
+    }
+    setSendingResetEmail(false)
+  }
+
+  const completePasswordRecovery = async (event: FormEvent) => {
+    event.preventDefault()
+    if (!supabase) return
+    if (resetPassword.length < 6) {
+      setAuthError('סיסמה חדשה חייבת להכיל לפחות 6 תווים')
+      return
+    }
+    if (resetPassword !== resetPasswordConfirm) {
+      setAuthError('הסיסמאות אינן תואמות')
+      return
+    }
+    setUpdatingPassword(true)
+    setAuthError(null)
+    const { error } = await supabase.auth.updateUser({ password: resetPassword })
+    if (error) {
+      setAuthError(error.message)
+      setUpdatingPassword(false)
+      return
+    }
+    await supabase.auth.signOut()
+    setPasswordRecoveryMode(false)
+    setResetPassword('')
+    setResetPasswordConfirm('')
+    setAuthMode('signin')
+    setAuthInfo('הסיסמה עודכנה בהצלחה. אפשר להתחבר עם הסיסמה החדשה.')
+    setUpdatingPassword(false)
+  }
+
   const signOut = async () => {
     if (!supabase) return
     await supabase.auth.signOut()
@@ -523,7 +578,42 @@ function App() {
           </section>
         ) : null}
 
-        {isSupabaseConfigured && !sessionUserId ? (
+        {isSupabaseConfigured && passwordRecoveryMode ? (
+          <section className="card auth-card">
+            <h2>איפוס סיסמה</h2>
+            <form onSubmit={completePasswordRecovery} className="stack">
+              <label>
+                סיסמה חדשה
+                <input
+                  type="password"
+                  value={resetPassword}
+                  onChange={(e) => setResetPassword(e.target.value)}
+                  required
+                  minLength={6}
+                  autoComplete="new-password"
+                />
+              </label>
+              <label>
+                אימות סיסמה חדשה
+                <input
+                  type="password"
+                  value={resetPasswordConfirm}
+                  onChange={(e) => setResetPasswordConfirm(e.target.value)}
+                  required
+                  minLength={6}
+                  autoComplete="new-password"
+                />
+              </label>
+              <button type="submit" className="btn-primary" disabled={updatingPassword}>
+                {updatingPassword ? 'מעדכן…' : 'עדכן סיסמה'}
+              </button>
+            </form>
+            {authError ? <p className="inline-status">{authError}</p> : null}
+            {authInfo ? <p className="inline-status">{authInfo}</p> : null}
+          </section>
+        ) : null}
+
+        {isSupabaseConfigured && !sessionUserId && !passwordRecoveryMode ? (
           <section className="card auth-card">
             <h2>{authMode === 'signin' ? 'התחברות' : 'הרשמה'}</h2>
             <form onSubmit={handleAuth} className="stack">
@@ -572,12 +662,26 @@ function App() {
             >
               {resendingVerification ? 'שולח…' : 'שלח שוב מייל אימות'}
             </button>
+            {authMode === 'signin' ? (
+              <button
+                type="button"
+                className="link-btn"
+                disabled={sendingResetEmail || !email.trim()}
+                onClick={() => void sendPasswordResetEmail()}
+              >
+                {sendingResetEmail
+                  ? 'שולח…'
+                  : resetEmailSent
+                    ? 'שלח שוב מייל איפוס סיסמה'
+                    : 'שכחתי סיסמה — שלח מייל איפוס'}
+              </button>
+            ) : null}
             {authError ? <p className="inline-status">{authError}</p> : null}
             {authInfo ? <p className="inline-status">{authInfo}</p> : null}
           </section>
         ) : null}
 
-        {sessionUserId && household ? (
+        {sessionUserId && household && !passwordRecoveryMode ? (
           <>
             {screen === 'dashboard' ? (
               <Dashboard
@@ -602,9 +706,6 @@ function App() {
             {screen === 'transactions' ? (
               <TransactionsView
                 entries={entries}
-                plans={plans}
-                recurringKeys={recurringKeys}
-                selectedMonth={selectedMonth}
                 householdId={household.id}
                 sessionUserId={sessionUserId}
                 accounts={accounts}
@@ -636,7 +737,7 @@ function App() {
           </>
         ) : null}
 
-        {sessionUserId && !household ? (
+        {sessionUserId && !household && !passwordRecoveryMode ? (
           <section className="card">
             <h2>טוען את הבית שלך…</h2>
             <p className="muted">
@@ -651,7 +752,7 @@ function App() {
         {authLoading && !sessionUserId ? <p className="muted center">בודק משתמש…</p> : null}
       </main>
 
-      {sessionUserId && household ? (
+      {sessionUserId && household && !passwordRecoveryMode ? (
         <>
           <BottomNav active={screen} onChange={setScreen} />
           {showFab ? (

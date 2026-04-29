@@ -244,10 +244,26 @@
   opacity: 0.8;
 }
 
+.month-field {
+  display: block;
+  margin-bottom: 16px;
+}
+
 .month-field input {
   width: 100%;
   max-width: 220px;
-  margin-bottom: 16px;
+}
+
+.month-picker {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  max-width: 300px;
+}
+
+.month-picker select {
+  direction: ltr;
+  text-align: center;
 }
 
 .kpi-grid {
@@ -626,6 +642,10 @@
   min-width: 72px;
 }
 
+.compact-table td[data-label='פעולות'] .row-actions {
+  justify-content: flex-start;
+}
+
 .toolbar-card {
   margin-bottom: 10px;
 }
@@ -973,16 +993,22 @@ input[type='month'] {
 
   .bank-table td {
     border-bottom: none;
-    padding: 3px 0;
+    padding: 6px 0;
     font-size: 0.81rem;
     text-align: right;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
   }
 
   .bank-table td::before {
     content: attr(data-label) ': ';
     font-weight: 600;
     color: var(--muted);
-    margin-inline-end: 6px;
+    margin-inline-end: 0;
+    flex: 0 0 auto;
   }
 
   .bank-table td.empty::before {
@@ -991,6 +1017,7 @@ input[type='month'] {
 
   .bank-table td[data-label='פעולות'] {
     padding-top: 6px;
+    display: block;
   }
 
   .bank-table td[data-label='פעולות'] .row-actions {
@@ -999,6 +1026,25 @@ input[type='month'] {
 
   .row-actions {
     margin-top: 0;
+  }
+
+  .feed-filter-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .feed-segmented {
+    width: 100%;
+    flex: none;
+  }
+
+  .feed-filter-row > .btn-secondary {
+    width: 100%;
+  }
+
+  .month-picker {
+    max-width: 100%;
   }
 
   .modal-backdrop {

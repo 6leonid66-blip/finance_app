@@ -2,15 +2,12 @@ import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import { supabase } from '../supabase'
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, isOtherCategory } from '../constants/categories'
-import type { EntryType, FinanceEntry, FinancialAccount, MonthlyPlan } from '../types'
+import type { EntryType, FinanceEntry, FinancialAccount } from '../types'
 import { analyzeReceiptWithGemini } from '../lib/geminiReceipt'
 import { deleteReceiptAttachment, uploadReceiptAttachment } from '../lib/receiptStorage'
 
 type TransactionsViewProps = {
   entries: FinanceEntry[]
-  plans: MonthlyPlan[]
-  recurringKeys: string[]
-  selectedMonth: string
   householdId: string
   sessionUserId: string
   accounts: FinancialAccount[]
@@ -22,7 +19,6 @@ type TransactionsViewProps = {
 type EntryFilter = 'expenses' | 'income' | 'all'
 type FeedItem = {
   id: string
-  kind: 'actual' | 'planned' | 'fixed_planned'
   type: EntryType
   amount: number
   category: string
@@ -41,9 +37,6 @@ function ownerLabel(entry: FinanceEntry) {
 
 export function TransactionsView({
   entries,
-  plans,
-  recurringKeys,
-  selectedMonth,
   householdId,
   sessionUserId,
   accounts,
@@ -96,41 +89,10 @@ export function TransactionsView({
       }),
     [entries],
   )
-  const plannedFeedItems = useMemo<FeedItem[]>(() => {
-    const rows: FeedItem[] = []
-    plans.forEach((plan) => {
-      if (plan.planned_expense > 0) {
-        const isFixed = recurringKeys.includes(`expense__${plan.category}`)
-        rows.push({
-          id: `plan-expense-${plan.id}`,
-          kind: isFixed ? 'fixed_planned' : 'planned',
-          type: 'expense',
-          amount: plan.planned_expense,
-          category: plan.category,
-          note: 'מתכנון חודשי',
-          occurred_on: `${selectedMonth}-01`,
-        })
-      }
-      if (plan.planned_income > 0) {
-        const isFixed = recurringKeys.includes(`income__${plan.category}`)
-        rows.push({
-          id: `plan-income-${plan.id}`,
-          kind: isFixed ? 'fixed_planned' : 'planned',
-          type: 'income',
-          amount: plan.planned_income,
-          category: plan.category,
-          note: 'מתכנון חודשי',
-          occurred_on: `${selectedMonth}-01`,
-        })
-      }
-    })
-    return rows
-  }, [plans, recurringKeys, selectedMonth])
 
   const allFeedItems = useMemo<FeedItem[]>(() => {
     const actualItems: FeedItem[] = sortedEntries.map((entry) => ({
       id: `tx-${entry.id}`,
-      kind: 'actual',
       type: entry.type,
       amount: entry.amount,
       category: entry.category,
@@ -140,23 +102,14 @@ export function TransactionsView({
       accountName: entry.account_name ?? null,
       ownerName: ownerLabel(entry),
     }))
-    const merged = [...actualItems, ...plannedFeedItems]
-    return merged.sort((a, b) => b.occurred_on.localeCompare(a.occurred_on))
-  }, [plannedFeedItems, sortedEntries])
+    return actualItems.sort((a, b) => b.occurred_on.localeCompare(a.occurred_on))
+  }, [sortedEntries])
 
   const filteredEntries = useMemo(() => {
     if (entryFilter === 'expenses') return allFeedItems.filter((entry) => entry.type === 'expense')
     if (entryFilter === 'income') return allFeedItems.filter((entry) => entry.type === 'income')
     return allFeedItems
   }, [allFeedItems, entryFilter])
-  const fixedPlannedEntries = useMemo(
-    () => filteredEntries.filter((entry) => entry.kind === 'fixed_planned'),
-    [filteredEntries],
-  )
-  const regularEntries = useMemo(
-    () => filteredEntries.filter((entry) => entry.kind !== 'fixed_planned'),
-    [filteredEntries],
-  )
 
   useEffect(() => {
     return () => {
@@ -410,48 +363,8 @@ export function TransactionsView({
         </div>
       </article>
 
-      {fixedPlannedEntries.length ? (
-        <article className="card card-form fixed-planned-head">
-          <h3 className="card-heading">קבועים מתוכננים לחודש</h3>
-          <div className="bank-table-wrap">
-            <table className="bank-table">
-              <thead>
-                <tr>
-                  <th>תאריך</th>
-                  <th>סוג</th>
-                  <th>קטגוריה</th>
-                  <th>תיאור</th>
-                  <th>חשבון/משתמש</th>
-                  <th>סכום</th>
-                  <th>סטטוס</th>
-                  <th>פעולות</th>
-                </tr>
-              </thead>
-              <tbody>
-                {fixedPlannedEntries.map((entry) => (
-                  <tr key={entry.id}>
-                    <td data-label="תאריך">{entry.occurred_on}</td>
-                    <td data-label="סוג">{entry.type === 'expense' ? 'הוצאה' : 'הכנסה'}</td>
-                    <td data-label="קטגוריה">{entry.category}</td>
-                    <td data-label="תיאור">{entry.note || '—'}</td>
-                    <td data-label="חשבון/משתמש">{entry.accountName || entry.ownerName || '—'}</td>
-                    <td data-label="סכום" className={entry.type === 'expense' ? 'amount-expense' : 'amount-income'}>
-                      {entry.amount.toLocaleString()} ₪
-                    </td>
-                    <td data-label="סטטוס">
-                      <span className="entry-badge entry-badge-fixed">קבוע-מתוכנן</span>
-                    </td>
-                    <td data-label="פעולות">—</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </article>
-      ) : null}
-
       <article className="card card-form">
-        <h3 className="card-heading">טבלת תנועות בנקאית</h3>
+        <h3 className="card-heading">טבלת תנועות בנקאית (תנועות אמת בלבד)</h3>
         <div className="bank-table-wrap">
           <table className="bank-table">
             <thead>
@@ -467,7 +380,7 @@ export function TransactionsView({
               </tr>
             </thead>
             <tbody>
-              {regularEntries.map((entry) => (
+              {filteredEntries.map((entry) => (
                 <tr key={entry.id}>
                   <td data-label="תאריך">{entry.occurred_on}</td>
                   <td data-label="סוג">{entry.type === 'expense' ? 'הוצאה' : 'הכנסה'}</td>
@@ -478,14 +391,14 @@ export function TransactionsView({
                     {entry.amount.toLocaleString()} ₪
                   </td>
                   <td data-label="סטטוס">
-                    {entry.kind === 'actual' ? <span className="entry-badge">בפועל</span> : null}
+                    <span className="entry-badge">בפועל</span>
                     {entry.sourceEntry?.is_auto_from_recurring ? (
                       <span className="entry-badge entry-badge-fixed">קבוע-אוטומטי</span>
                     ) : null}
                     {entry.sourceEntry?.installment_progress_label ? (
                       <span className="entry-badge">{entry.sourceEntry.installment_progress_label}</span>
                     ) : null}
-                    {entry.kind === 'planned' ? <span className="entry-badge">מתוכנן</span> : null}
+                    {entry.sourceEntry?.planned ? <span className="entry-badge">מתוכנן</span> : null}
                   </td>
                   <td data-label="פעולות">
                     <div className="row-actions">
@@ -515,7 +428,7 @@ export function TransactionsView({
                   </td>
                 </tr>
               ))}
-              {!regularEntries.length ? (
+              {!filteredEntries.length ? (
                 <tr>
                   <td colSpan={8} className="empty">
                     אין תנועות להצגה במסנן הנוכחי.
