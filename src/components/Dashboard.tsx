@@ -2,6 +2,19 @@ import { useEffect, useMemo, useState } from 'react'
 import type { FinanceEntry, FinancialAccount, UserProfileView } from '../types'
 import { MonthValuePicker } from './MonthValuePicker'
 import { generateHouseholdAdviceWithGemini } from '../lib/geminiReceipt'
+import { colorForCategory } from '../lib/categoryColors'
+
+const ILS_FORMATTER = new Intl.NumberFormat('he-IL', { maximumFractionDigits: 0 })
+
+function formatIls(amount: number): string {
+  return `${ILS_FORMATTER.format(Math.round(amount))} ₪`
+}
+
+function formatPctOneDecimal(pct: number): string {
+  if (!Number.isFinite(pct) || pct <= 0) return '0%'
+  if (pct < 0.1) return '<0.1%'
+  return `${pct.toFixed(1)}%`
+}
 
 type DashboardProps = {
   selectedMonth: string
@@ -278,20 +291,42 @@ export function Dashboard({
     [accounts, entries],
   )
   const expenseDistribution = useMemo(() => {
+    // Coverage: every actual expense for the scoped+selected-month view
+    // contributes exactly once. No top-N cap, no "Other" rollup, no rounding
+    // before aggregation. Categories are normalized only by trimming and
+    // empty-string fallback; nothing else is dropped or merged.
     const expenses = entries.filter((entry) => entry.type === 'expense' && !entry.planned)
     const byCategory = new Map<string, number>()
     expenses.forEach((entry) => {
-      byCategory.set(entry.category, (byCategory.get(entry.category) ?? 0) + entry.amount)
+      const amount = Number(entry.amount)
+      if (!Number.isFinite(amount) || amount <= 0) return
+      const key = (entry.category ?? '').trim() || 'אחר'
+      byCategory.set(key, (byCategory.get(key) ?? 0) + amount)
     })
-    const total = expenses.reduce((sum, entry) => sum + entry.amount, 0)
+    const total = Array.from(byCategory.values()).reduce((sum, value) => sum + value, 0)
     const rows = Array.from(byCategory.entries())
+      .filter(([, amount]) => Number.isFinite(amount) && amount > 0)
       .map(([category, amount]) => ({
         category,
         amount,
+        color: colorForCategory(category),
         pctExpense: total > 0 ? (amount / total) * 100 : 0,
         pctIncome: actualIncome > 0 ? (amount / actualIncome) * 100 : 0,
       }))
-      .sort((a, b) => b.amount - a.amount)
+      .sort((a, b) => {
+        if (b.amount !== a.amount) return b.amount - a.amount
+        return a.category.localeCompare(b.category, 'he')
+      })
+    // Invariant: the legend's slice sum must equal the displayed actualExpense
+    // (both are computed from the same scoped+selected-month entries with
+    // type === 'expense' && !planned). If this ever fails, a slice was hidden
+    // or rounded away upstream.
+    const sliceSum = rows.reduce((sum, row) => sum + row.amount, 0)
+    console.assert(
+      Math.abs(sliceSum - total) < 0.005,
+      'expenseDistribution: slice sum diverges from category total',
+      { sliceSum, total },
+    )
     return { rows, total }
   }, [entries, actualIncome])
   const monthlyTrend = useMemo(() => {
@@ -372,13 +407,11 @@ export function Dashboard({
     if (!expenseDistribution.rows.length || expenseDistribution.total <= 0) {
       return 'conic-gradient(#1f2937 0deg 360deg)'
     }
-    const palette = ['#38bdf8', '#34d399', '#f59e0b', '#f97316', '#a78bfa', '#f472b6', '#fb7185', '#22d3ee']
     let start = 0
-    const parts = expenseDistribution.rows.map((row, index) => {
+    const parts = expenseDistribution.rows.map((row) => {
       const span = (row.amount / expenseDistribution.total) * 360
-      const color = palette[index % palette.length]
       const end = start + span
-      const part = `${color} ${start.toFixed(2)}deg ${end.toFixed(2)}deg`
+      const part = `${row.color} ${start.toFixed(2)}deg ${end.toFixed(2)}deg`
       start = end
       return part
     })
@@ -572,19 +605,32 @@ export function Dashboard({
         <h2 className="card-heading">חלוקת הוצאות לפי קטגוריה</h2>
         <div className="expense-pie-wrap">
           <div className="expense-pie" style={{ background: pieGradient }} aria-label="חלוקת הוצאות" />
-          <div className="expense-legend">
-            {expenseDistribution.rows.slice(0, 8).map((row) => (
-              <div key={row.category} className="expense-legend-row">
-                <strong>{row.category}</strong>
-                <span>{row.amount.toLocaleString()} ₪</span>
-                <small>
-                  {row.pctExpense.toFixed(0)}% מההוצאות · {row.pctIncome.toFixed(0)}% מההכנסות
-                </small>
+          <div className="expense-legend" role="list">
+            {expenseDistribution.rows.map((row) => (
+              <div key={row.category} className="expense-legend-row" role="listitem">
+                <span
+                  className="expense-legend-swatch"
+                  style={{ background: row.color }}
+                  aria-hidden="true"
+                />
+                <div className="expense-legend-text">
+                  <strong>{row.category}</strong>
+                  <span>{formatIls(row.amount)}</span>
+                  <small>
+                    {formatPctOneDecimal(row.pctExpense)} מההוצאות · {formatPctOneDecimal(row.pctIncome)} מההכנסות
+                  </small>
+                </div>
               </div>
             ))}
             {!expenseDistribution.rows.length ? <p className="muted">אין הוצאות בפועל לחודש זה.</p> : null}
           </div>
         </div>
+        {expenseDistribution.rows.length ? (
+          <div className="expense-legend-total">
+            <span>סך הכל ({expenseDistribution.rows.length} קטגוריות)</span>
+            <strong>{formatIls(expenseDistribution.total)}</strong>
+          </div>
+        ) : null}
       </section>
       <section className="card">
         <h2 className="card-heading">תובנות חכמות לחודש</h2>
@@ -596,8 +642,23 @@ export function Dashboard({
           ))}
         </div>
         <div className="row-actions" style={{ marginTop: 8 }}>
-          <button type="button" className="btn-primary btn-xs" onClick={() => void runAdvisor()} disabled={advisorLoading}>
-            {advisorLoading ? 'מנתח נתונים…' : 'יועץ AI — המלצות לחיסכון'}
+          <button
+            type="button"
+            className={advisorLoading ? 'btn-primary btn-xs btn-loading' : 'btn-primary btn-xs'}
+            onClick={() => void runAdvisor()}
+            disabled={advisorLoading}
+            aria-busy={advisorLoading}
+          >
+            <span className="btn-label">
+              {advisorLoading ? 'מנתח נתונים…' : 'יועץ AI — המלצות לחיסכון'}
+            </span>
+            {advisorLoading ? (
+              <span className="btn-spinner thinking-dots" aria-hidden>
+                <span />
+                <span />
+                <span />
+              </span>
+            ) : null}
           </button>
         </div>
         {advisorText ? <pre className="advisor-output">{advisorText}</pre> : null}

@@ -6,6 +6,249 @@
   color: var(--text);
 }
 
+/* Boot screen — pretty branded loader shown while the user's first month
+ * of data is bootstrapping. Designed to *not* show any error noise during
+ * the normal happy-path window; the DB hint appears only after a 6s
+ * timeout, in muted small tone. */
+.boot-screen {
+  min-height: 100dvh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  background:
+    radial-gradient(120% 120% at 100% 0%, color-mix(in srgb, var(--primary) 18%, transparent), transparent 60%),
+    radial-gradient(120% 120% at 0% 100%, color-mix(in srgb, var(--primary) 12%, transparent), transparent 60%),
+    var(--surface);
+}
+
+.boot-card {
+  width: 100%;
+  max-width: 360px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 28px 22px;
+  background: var(--card);
+  border-radius: 22px;
+  border: 1px solid var(--border);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.12);
+  animation: bootFadeIn 360ms ease-out;
+}
+
+.boot-mark {
+  width: 72px;
+  height: 72px;
+  border-radius: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 38px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 22%, transparent), color-mix(in srgb, var(--primary) 8%, transparent));
+  border: 1px solid color-mix(in srgb, var(--primary) 30%, var(--border));
+  box-shadow: 0 8px 22px rgba(37, 99, 235, 0.18);
+  animation: bootMarkFloat 2.4s ease-in-out infinite;
+}
+
+.boot-title {
+  margin: 4px 0 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.boot-tagline {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+  min-height: 1.4em;
+  animation: bootTaglineSwap 280ms ease-out;
+}
+
+.boot-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.boot-dots span {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+  opacity: 0.55;
+  animation: bootDots 1.1s infinite ease-in-out;
+}
+
+.boot-dots span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.boot-dots span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.boot-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 3px solid color-mix(in srgb, var(--primary) 22%, transparent);
+  border-top-color: var(--primary);
+  animation: bootSpin 0.85s linear infinite;
+  margin-top: 4px;
+}
+
+.boot-hint {
+  margin-top: 6px;
+  text-align: center;
+  line-height: 1.4;
+}
+
+@keyframes bootDots {
+  0%,
+  80%,
+  100% {
+    transform: scale(0.7);
+    opacity: 0.4;
+  }
+  40% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+}
+
+@keyframes bootSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes bootFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes bootMarkFloat {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+@keyframes bootTaglineSwap {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Reusable "thinking" mini dots — three small bouncing dots that any
+ * component can drop in next to text. Inherits color from currentColor
+ * so it adapts to the surrounding text/button automatically. */
+.thinking-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  vertical-align: middle;
+}
+
+.thinking-dots > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.55;
+  animation: thinkingDots 1.1s infinite ease-in-out;
+}
+
+.thinking-dots > span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.thinking-dots > span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+/* When dropped next to inline text we want a small gap and baseline-ish
+ * alignment so the dots feel attached to the trailing word. */
+p .thinking-dots,
+.chat-content .thinking-dots {
+  margin-inline-start: 6px;
+}
+
+.chat-thinking {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 1em;
+}
+
+@keyframes thinkingDots {
+  0%,
+  80%,
+  100% {
+    transform: scale(0.7);
+    opacity: 0.4;
+  }
+  40% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+}
+
+/* In-flight button mode — preserves the button's intrinsic width by
+ * keeping its label rendered (with opacity 0) and overlaying a centered
+ * thinking-dots indicator on top. No layout shift, no width recompute. */
+.btn-loading {
+  position: relative;
+  pointer-events: none;
+}
+
+.btn-loading > .btn-label {
+  opacity: 0;
+}
+
+.btn-spinner {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+/* Screen transitions — gentle fade+rise on mount, keyed per screen so
+ * switching tabs in the bottom nav animates the new content in. */
+.screen-fade {
+  animation: fadeInUp 150ms ease-out both;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .app-main {
   flex: 1;
   padding: 12px 12px 86px;
@@ -536,12 +779,46 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-inline-end: 4px;
 }
 
 .expense-legend-row {
   display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.expense-legend-swatch {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin-top: 5px;
+  border: 1px solid rgba(15, 23, 42, 0.18);
+}
+
+.expense-legend-text {
+  display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
+}
+
+.expense-legend-text > strong {
+  word-break: break-word;
+}
+
+.expense-legend-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 8px;
+  margin-top: 4px;
+  border-top: 1px dashed var(--border);
+  font-size: 0.92rem;
 }
 
 .insights-list {
@@ -1293,6 +1570,11 @@ input[type='month'] {
     height: 150px;
   }
 
+  .expense-legend {
+    width: 100%;
+    max-height: 260px;
+  }
+
   .bank-table thead {
     display: none;
   }
@@ -1878,4 +2160,96 @@ input[type='month'] {
 .chat-send {
   align-self: stretch;
   white-space: nowrap;
+}
+
+/* Press / hover / focus feedback for interactive elements. Kept snappy
+ * (transform 80ms) so users feel responsiveness without input lag. We
+ * gate :hover effects on (hover: hover) so touch devices don't get the
+ * sticky-hover artifact where the last tapped button stays "hovered". */
+.btn-primary,
+.btn-secondary,
+.btn-danger,
+.btn-xs,
+.btn-icon,
+.btn-ghost,
+.seg,
+.pill-toggle,
+.chat-chip,
+.chat-send,
+.fab,
+.fab-secondary,
+.bottom-nav-item,
+.profile-chip {
+  transition:
+    transform 80ms ease,
+    filter 80ms ease,
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn-primary:active:not(:disabled),
+.btn-secondary:active:not(:disabled),
+.btn-danger:active:not(:disabled),
+.btn-xs:active:not(:disabled),
+.btn-icon:active:not(:disabled),
+.btn-ghost:active:not(:disabled),
+.seg:active:not(:disabled),
+.pill-toggle:active:not(:disabled),
+.chat-chip:active:not(:disabled),
+.chat-send:active:not(:disabled),
+.fab:active:not(:disabled),
+.fab-secondary:active:not(:disabled),
+.bottom-nav-item:active:not(:disabled),
+.profile-chip:active:not(:disabled) {
+  transform: scale(0.97);
+  filter: brightness(0.95);
+}
+
+@media (hover: hover) {
+  .btn-primary:hover:not(:disabled),
+  .chat-send:hover:not(:disabled),
+  .fab:hover:not(:disabled) {
+    filter: brightness(1.05);
+  }
+
+  .btn-secondary:hover:not(:disabled),
+  .btn-xs:hover:not(:disabled),
+  .chat-chip:hover:not(:disabled),
+  .profile-chip:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--card) 88%, var(--primary) 12%);
+    border-color: color-mix(in srgb, var(--primary) 30%, var(--border));
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    filter: brightness(0.97);
+  }
+
+  .seg:hover:not(.active):not(:disabled) {
+    background: color-mix(in srgb, var(--input-bg) 80%, var(--primary) 20%);
+  }
+
+  .bottom-nav-item:hover:not(.active) {
+    color: color-mix(in srgb, var(--muted) 50%, var(--primary) 50%);
+  }
+}
+
+.btn-primary:focus-visible,
+.btn-secondary:focus-visible,
+.btn-danger:focus-visible,
+.btn-xs:focus-visible,
+.btn-icon:focus-visible,
+.btn-ghost:focus-visible,
+.seg:focus-visible,
+.pill-toggle:focus-visible,
+.chat-chip:focus-visible,
+.chat-send:focus-visible,
+.fab:focus-visible,
+.fab-secondary:focus-visible,
+.bottom-nav-item:focus-visible,
+.profile-chip:focus-visible,
+.link-btn:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
 }
