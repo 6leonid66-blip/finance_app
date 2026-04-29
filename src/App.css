@@ -258,7 +258,7 @@
 
 @media (min-width: 520px) {
   .kpi-grid {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -267,6 +267,8 @@
   padding: 16px;
   border: 1px solid var(--border);
   background: var(--card);
+  min-width: 0;
+  overflow: hidden;
 }
 
 .kpi-income {
@@ -280,12 +282,15 @@
 .kpi-label {
   font-size: 0.85rem;
   color: var(--muted);
+  line-height: 1.35;
+  word-break: break-word;
 }
 
 .kpi-value {
   display: block;
   font-size: 1.35rem;
   margin: 8px 0;
+  line-height: 1.2;
 }
 
 .kpi-meta {
@@ -324,7 +329,7 @@
 
 .balance-cards {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
   margin-top: 16px;
 }
@@ -355,6 +360,13 @@
 
 .trend-section {
   margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.trend-section .kpi-grid {
+  grid-template-columns: 1fr;
 }
 
 .trend-legend {
@@ -369,7 +381,7 @@
   display: flex;
   align-items: flex-end;
   gap: 4px;
-  margin-top: 8px;
+  margin-top: 2px;
   padding: 4px 2px 0;
   overflow: hidden;
 }

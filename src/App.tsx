@@ -190,6 +190,13 @@ function App() {
       if (autoPostError) {
         if (autoPostError.message?.includes('function') || autoPostError.code === '42883') {
           setStatusMessage('פונקציית auto-post חסרה. הרץ מיגרציה: 202604290230_recurring_auto_post_transactions.sql')
+        } else if (
+          autoPostError.code === '42P10' ||
+          autoPostError.message?.includes('no unique or exclusion constraint matching the ON CONFLICT specification')
+        ) {
+          setStatusMessage(
+            'נדרש תיקון מיגרציה ל-auto-post. הרץ: 202604290235_fix_auto_post_conflict_index.sql',
+          )
         } else {
           throw autoPostError
         }

@@ -51,6 +51,8 @@ npm run dev
 - `supabase/migrations/202604290120_fix_bootstrap_household_ambiguous.sql` — תיקון שגיאת `household_id is ambiguous` ב-RPC
 - `supabase/migrations/202604290140_financial_accounts.sql` — תמיכה בחשבונות (בחירה לכל תנועה)
 - `supabase/migrations/202604290145_transactions_account_guard.sql` — בדיקת התאמה בין `account_id` ל־`household`
+- `supabase/migrations/202604290235_fix_auto_post_conflict_index.sql` — תיקון unique index ל-auto-post
+- `supabase/migrations/202604290240_fix_auto_post_function_conflict.sql` — תיקון פונקציית auto-post למניעת שגיאת ON CONFLICT
 - `supabase/migrations/202604290200_receipts_storage.sql` — קבצים מצורפים לתנועות + bucket/policies ב-Storage
 - `supabase/migrations/202604290230_recurring_auto_post_transactions.sql` — דגל auto-post לקבועים + יצירת transactions אוטומטית (ללא כפילויות) לכל חודש
 
