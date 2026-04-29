@@ -38,7 +38,6 @@ export function RecurringTemplatesPanel({
   const [endRule, setEndRule] = useState<RecurringEndRule>('unlimited')
   const [endMonth, setEndMonth] = useState(selectedMonth)
   const [maxInstallments, setMaxInstallments] = useState('')
-  const [autoPostAsActual, setAutoPostAsActual] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -96,7 +95,7 @@ export function RecurringTemplatesPanel({
     const { data, error: qErr } = await supabase
       .from('recurring_templates')
       .select(
-        'id,household_id,direction,category,label,mode,default_amount,template_start_month,end_rule,end_month,max_installments,auto_post_as_actual,active,created_at,updated_at',
+        'id,household_id,direction,category,label,mode,default_amount,template_start_month,end_rule,end_month,max_installments,active,created_at,updated_at',
       )
       .eq('household_id', householdId)
       .order('created_at', { ascending: false })
@@ -153,7 +152,11 @@ export function RecurringTemplatesPanel({
           endRule === 'fixed_installments'
             ? Number(maxInstallments || monthDiffInclusive(startMonth, endMonth))
             : null,
-        auto_post_as_actual: autoPostAsActual,
+        // Every active recurring template auto-posts by definition. We always
+        // write `true` from the client; the column is kept for backwards
+        // compatibility with older deploys but is no longer consulted by the
+        // SQL auto-post function.
+        auto_post_as_actual: true,
         active: true,
       })
       if (insErr) throw insErr
@@ -161,7 +164,6 @@ export function RecurringTemplatesPanel({
       setDefaultAmount('')
       setMaxInstallments('')
       setEndRule('unlimited')
-      setAutoPostAsActual(false)
       setShowCreate(false)
       await load()
       onTemplatesChanged()
@@ -219,7 +221,6 @@ export function RecurringTemplatesPanel({
         : selectedMonth)
     setEndMonth(endValue)
     setMaxInstallments(row.max_installments ? String(row.max_installments) : '')
-    setAutoPostAsActual(Boolean(row.auto_post_as_actual))
     setError(null)
   }
 
@@ -261,7 +262,10 @@ export function RecurringTemplatesPanel({
             endRule === 'fixed_installments'
               ? Number(maxInstallments || monthDiffInclusive(startMonth, endMonth))
               : null,
-          auto_post_as_actual: autoPostAsActual,
+          // Auto-posting is implicit: every active recurring template posts
+          // automatically. Force the column to true on every save in case an
+          // older deploy left it false.
+          auto_post_as_actual: true,
         })
         .eq('id', editingId)
       if (updErr) throw updErr
@@ -502,17 +506,6 @@ export function RecurringTemplatesPanel({
               תיאור (אופציונלי)
               <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="למשל: חשמל דירה" />
             </label>
-            <label className="check">
-              <input
-                type="checkbox"
-                checked={autoPostAsActual}
-                onChange={(e) => setAutoPostAsActual(e.target.checked)}
-              />
-              רישום אוטומטי בכל חודש
-            </label>
-            <p className="muted small">
-              הקבוע ייווצר כתנועה אמיתית בכל 1 לחודש בלי שצריך לאשר ידנית.
-            </p>
             {mode === 'fixed_amount' ? (
               <label>
                 סכום חודשי (₪)

@@ -48,7 +48,6 @@ export function PlanningView({
   const [endRule, setEndRule] = useState<RecurringEndRule>('unlimited')
   const [endMonth, setEndMonth] = useState(selectedMonth)
   const [maxInstallments, setMaxInstallments] = useState('')
-  const [autoPostAsActual, setAutoPostAsActual] = useState(false)
   const [saving, setSaving] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
 
@@ -59,7 +58,7 @@ export function PlanningView({
     const { data, error } = await supabase
       .from('recurring_templates')
       .select(
-        'id,household_id,direction,category,label,mode,default_amount,template_start_month,end_rule,end_month,max_installments,auto_post_as_actual,active,created_at,updated_at',
+        'id,household_id,direction,category,label,mode,default_amount,template_start_month,end_rule,end_month,max_installments,active,created_at,updated_at',
       )
       .eq('household_id', householdId)
     if (!error) {
@@ -98,7 +97,6 @@ export function PlanningView({
       setEndRule(matched.end_rule)
       setEndMonth(matched.end_month?.slice(0, 7) ?? selectedMonth)
       setMaxInstallments(matched.max_installments ? String(matched.max_installments) : '')
-      setAutoPostAsActual(Boolean(matched.auto_post_as_actual))
     } else {
       setApplyRecurring(false)
       setRecurringTemplateId(null)
@@ -112,7 +110,6 @@ export function PlanningView({
       setEndRule('unlimited')
       setEndMonth(selectedMonth)
       setMaxInstallments('')
-      setAutoPostAsActual(false)
     }
     setStatus(null)
   }
@@ -134,7 +131,6 @@ export function PlanningView({
     setEndRule('unlimited')
     setEndMonth(selectedMonth)
     setMaxInstallments('')
-    setAutoPostAsActual(false)
   }
 
   const savePlan = async (e: FormEvent) => {
@@ -178,7 +174,10 @@ export function PlanningView({
           end_rule: endRule,
           end_month: endRule === 'until_month' ? monthValueToFirstDay(endMonth) : null,
           max_installments: endRule === 'fixed_installments' ? Number(maxInstallments) : null,
-          auto_post_as_actual: autoPostAsActual,
+          // Every active recurring template auto-posts by definition; the
+          // column is kept for backwards compatibility but the SQL function
+          // ignores it.
+          auto_post_as_actual: true,
           active: true,
         }
         if (recurringTemplateId) {
@@ -394,14 +393,6 @@ export function PlanningView({
                 <label>
                   תיאור (אופציונלי)
                   <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="למשל: הלוואה רכב" />
-                </label>
-                <label className="check">
-                  <input
-                    type="checkbox"
-                    checked={autoPostAsActual}
-                    onChange={(e) => setAutoPostAsActual(e.target.checked)}
-                  />
-                  הכנס אוטומטית גם לפועל
                 </label>
                 {mode === 'fixed_amount' ? (
                   <label>
