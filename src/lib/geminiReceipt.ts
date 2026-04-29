@@ -1,7 +1,26 @@
+import type { ParsedBankRow } from './reconcile'
+
 type ReceiptAnalysis = {
   amount?: number
   description?: string
   suggestedCategory?: string
+}
+
+export type AssistantActionPayload = {
+  type: 'expense' | 'income'
+  amount?: number
+  note?: string
+  category?: string
+}
+
+export type AssistantAction = {
+  type: 'add_transaction'
+  payload: AssistantActionPayload
+}
+
+export type AssistantChatMessage = {
+  role: 'user' | 'assistant'
+  content: string
 }
 
 type ProxySuccess = {
@@ -10,6 +29,10 @@ type ProxySuccess = {
   description?: string
   suggestedCategory?: string
   text?: string
+  items?: ParsedBankRow[]
+  truncated?: boolean
+  reply?: string
+  action?: AssistantAction
 }
 
 type ProxyFailure = {
@@ -146,3 +169,41 @@ export async function generateHouseholdAdviceWithGemini(params: {
   if (!result.text) throw new Error('Gemini לא החזיר המלצה')
   return result.text
 }
+
+export async function parseBankStatementRows(rows: Record<string, unknown>[]): Promise<{
+  items: ParsedBankRow[]
+  truncated: boolean
+}> {
+  const result = await callProxy({ kind: 'statement-map', rows })
+  return {
+    items: result.items ?? [],
+    truncated: Boolean(result.truncated),
+  }
+}
+
+export async function parseBankStatementFile(file: File): Promise<{ items: ParsedBankRow[] }> {
+  const fileBase64 = await fileToBase64(file)
+  const result = await callProxy({
+    kind: 'statement-image',
+    fileBase64,
+    mimeType: file.type || (file.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg'),
+  })
+  return { items: result.items ?? [] }
+}
+
+export async function sendAssistantChat(params: {
+  messages: AssistantChatMessage[]
+  ledger: unknown
+}): Promise<{ reply: string; action?: AssistantAction }> {
+  const result = await callProxy({
+    kind: 'chat',
+    messages: params.messages,
+    ledger: params.ledger,
+  })
+  return {
+    reply: result.reply ?? '',
+    action: result.action,
+  }
+}
+
+export { fileToBase64 }

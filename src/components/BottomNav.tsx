@@ -9,6 +9,8 @@ const items: { id: AppScreen; label: string }[] = [
   { id: 'dashboard', label: 'דשבורד' },
   { id: 'transactions', label: 'תנועות' },
   { id: 'recurring', label: 'קבועים' },
+  { id: 'reconcile', label: 'השוואה' },
+  { id: 'assistant', label: 'עוזר' },
 ]
 
 export function BottomNav({ active, onChange }: BottomNavProps) {

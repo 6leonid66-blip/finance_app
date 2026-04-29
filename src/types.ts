@@ -78,4 +78,4 @@ export interface UserProfileView {
   avatar_url: string | null
 }
 
-export type AppScreen = 'dashboard' | 'transactions' | 'recurring'
+export type AppScreen = 'dashboard' | 'transactions' | 'recurring' | 'reconcile' | 'assistant'

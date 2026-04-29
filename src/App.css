@@ -954,22 +954,23 @@
   max-width: 720px;
   margin-inline: auto;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 0;
   background: var(--card);
   border-top: 1px solid var(--border);
-  padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+  padding: 8px 4px calc(8px + env(safe-area-inset-bottom));
   z-index: 30;
 }
 
 .bottom-nav-item {
   border: none;
   background: transparent;
-  padding: 10px 4px;
-  font-size: 0.78rem;
+  padding: 10px 2px;
+  font-size: 0.74rem;
   color: var(--muted);
   cursor: pointer;
   font-weight: 600;
+  white-space: nowrap;
 }
 
 .bottom-nav-item.active {
@@ -1635,4 +1636,219 @@ input[type='month'] {
   .recurring-mobile-list {
     display: none;
   }
+}
+
+/* Reconcile screen */
+.reconcile-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.scope-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.reconcile-date-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.reconcile-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  padding: 12px 14px;
+  font-size: 0.92rem;
+  align-items: baseline;
+}
+
+.reconcile-summary strong {
+  font-weight: 800;
+  margin-inline: 2px;
+}
+
+.reconcile-section {
+  border-inline-start: 4px solid transparent;
+}
+
+.reconcile-section.reconcile-missing {
+  border-inline-start-color: #dc2626;
+}
+
+.reconcile-section.reconcile-extra {
+  border-inline-start-color: #d97706;
+}
+
+.reconcile-section.reconcile-matched {
+  border-inline-start-color: #16a34a;
+}
+
+.reconcile-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reconcile-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card);
+}
+
+.reconcile-row-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex: 1;
+  cursor: pointer;
+}
+
+.reconcile-row-main input[type='checkbox'] {
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+
+.reconcile-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  font-size: 0.9rem;
+}
+
+.reconcile-row-text strong {
+  font-weight: 700;
+}
+
+.reconcile-row-text span {
+  word-break: break-word;
+}
+
+@media (max-width: 480px) {
+  .reconcile-row {
+    flex-direction: column;
+  }
+}
+
+/* Assistant / chat */
+.assistant-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.assistant-header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-thread {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 4px;
+  flex: 1;
+  min-height: 240px;
+  max-height: calc(100vh - 360px);
+  overflow-y: auto;
+  scroll-behavior: smooth;
+}
+
+.chat-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px 12px;
+  text-align: center;
+}
+
+.chat-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.chat-chip {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--card);
+  padding: 6px 12px;
+  font-size: 0.86rem;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.chat-bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 85%;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  word-break: break-word;
+}
+
+.chat-bubble.chat-user {
+  align-self: flex-end;
+  background: color-mix(in srgb, var(--primary) 14%, var(--card));
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+}
+
+.chat-bubble.chat-assistant {
+  align-self: flex-start;
+}
+
+.chat-content {
+  white-space: pre-wrap;
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.chat-action-row {
+  display: flex;
+  gap: 6px;
+}
+
+.chat-input-row {
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+  align-items: flex-end;
+  position: sticky;
+  bottom: 70px;
+  z-index: 4;
+}
+
+.chat-input {
+  flex: 1;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 8px 10px;
+  font-family: inherit;
+  font-size: 0.95rem;
+  min-height: 44px;
+}
+
+.chat-send {
+  align-self: stretch;
+  white-space: nowrap;
 }

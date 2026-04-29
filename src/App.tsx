@@ -7,6 +7,9 @@ import { BottomNav } from './components/BottomNav'
 import { Dashboard } from './components/Dashboard'
 import { RecurringTemplatesPanel } from './components/RecurringTemplatesPanel'
 import { TransactionsView } from './components/TransactionsView'
+import { ReconcileView } from './components/ReconcileView'
+import { AssistantView } from './components/AssistantView'
+import { buildCompactLedger } from './lib/assistantContext'
 import { isSupabaseConfigured, supabase } from './supabase'
 import type { AppScreen, EntryType, FinanceEntry, FinancialAccount, Household, UserProfileView } from './types'
 import { monthValueToRange } from './lib/month'
@@ -857,6 +860,22 @@ function App() {
 
   const showFab = screen === 'dashboard' || screen === 'transactions'
 
+  const compactLedger = useMemo(() => {
+    if (!household?.id) return null
+    return buildCompactLedger({
+      householdId: household.id,
+      currentMonth: selectedMonth,
+      scope: scopeMode,
+      monthlyEntries: scopedEntries,
+      historyEntries: scopedHistoryEntries,
+      recurring: [],
+    })
+  }, [household?.id, selectedMonth, scopeMode, scopedEntries, scopedHistoryEntries])
+
+  const handlePrefillAddExpense = (type: 'expense' | 'income', prefill: AddExpensePrefill) => {
+    openFab(type, prefill)
+  }
+
   return (
     <div className="app-root" dir="rtl">
       <main className="app-main">
@@ -1022,6 +1041,31 @@ function App() {
                 onTemplatesChanged={refreshMonth}
                 scopeMode={scopeMode}
                 onScopeModeChange={setScopeMode}
+              />
+            ) : null}
+
+            {screen === 'reconcile' && sessionUserId ? (
+              <ReconcileView
+                householdId={household.id}
+                sessionUserId={sessionUserId}
+                accounts={accounts}
+                selectedAccountId={selectedAccountId}
+                onSelectedAccountIdChange={setSelectedAccountId}
+                scopeMode={scopeMode}
+                onScopeModeChange={setScopeMode}
+                onRefresh={refreshMonth}
+                onPrefillAddExpense={handlePrefillAddExpense}
+              />
+            ) : null}
+
+            {screen === 'assistant' && sessionUserId && compactLedger ? (
+              <AssistantView
+                householdId={household.id}
+                sessionUserId={sessionUserId}
+                ledger={compactLedger}
+                scopeMode={scopeMode}
+                onScopeModeChange={setScopeMode}
+                onPrefillAddExpense={handlePrefillAddExpense}
               />
             ) : null}
 

@@ -44,7 +44,38 @@ type ProxyResultText = {
   text: string
 }
 
-type ProxyResult = ProxyResultJson | ProxyResultText | ProxyError
+type ParsedStatementRow = {
+  occurred_on: string
+  amount: number
+  type: 'expense' | 'income'
+  description?: string
+}
+
+type ProxyResultStatement = {
+  ok: true
+  kind: 'statement'
+  items: ParsedStatementRow[]
+  truncated?: boolean
+}
+
+type AssistantAction = {
+  type: 'add_transaction'
+  payload: {
+    type: 'expense' | 'income'
+    amount?: number
+    note?: string
+    category?: string
+  }
+}
+
+type ProxyResultChat = {
+  ok: true
+  kind: 'chat'
+  reply: string
+  action?: AssistantAction
+}
+
+type ProxyResult = ProxyResultJson | ProxyResultText | ProxyResultStatement | ProxyResultChat | ProxyError
 
 function jsonResponse(body: ProxyResult, status: number): Response {
   return new Response(JSON.stringify(body), {
@@ -134,6 +165,85 @@ function buildAdvicePrompt(month: string, summary: string): string {
   return `You are a household finance advisor for an Israeli family.\nWrite your response in Hebrew.\nKeep it practical and short (4 bullet points max).\nData month: ${month}\nData summary:\n${summary}\nReturn plain text only.`
 }
 
+const STATEMENT_JSON_SCHEMA_HINT =
+  'Return a single JSON object: { "items": ParsedRow[] }. Each ParsedRow: { "occurred_on": "YYYY-MM-DD", "amount": positive number (no sign), "type": "expense" | "income", "description": short Hebrew string (up to 80 chars) }. Hebrew column hints: תאריך / תאריך עסקה / תאריך חיוב → occurred_on. סכום / חיוב / זכות → amount; if value or column indicates חובה / negative / -123.45 the type is "expense"; if זכות / positive the type is "income". תיאור / פירוט / שם בית עסק / שם העסק → description. Skip header rows, balance-only rows, totals rows. Output JSON only.'
+
+function buildStatementMapPrompt(rows: unknown[]): string {
+  return `You are an Israeli bank / credit-card statement parser.\n${STATEMENT_JSON_SCHEMA_HINT}\nRaw rows (first ${rows.length}):\n${JSON.stringify(rows).slice(0, 60_000)}`
+}
+
+function buildStatementImagePrompt(): string {
+  return `You are an Israeli bank / credit-card statement parser. Read the attached file (PDF or image) and extract every transaction line you can identify.\n${STATEMENT_JSON_SCHEMA_HINT}`
+}
+
+function buildChatSystemPrompt(): string {
+  return [
+    'אתה עוזר פיננסי אישי למשפחה ישראלית. ענה תמיד בעברית, קצר וברור.',
+    'השתמש *רק* בנתוני הקלסר (ledger) שמסופקים בהודעה הראשונה. אם שאלה דורשת נתון שאינו בקלסר, אמור שאין מספיק מידע במקום לנחש.',
+    'כשהמשתמש מבקש להוסיף הוצאה או הכנסה, החזר *בסוף* התשובה בלבד בלוק JSON אחד בפורמט הבא, בתוך ```json ... ```:',
+    '{ "action": "add_transaction", "type": "expense"|"income", "amount": number, "category": string, "note": string }',
+    'בכל מקרה אחר אל תכלול בלוק JSON. אל תוסיף הסברים על ה-JSON.',
+  ].join('\n')
+}
+
+const ACTION_BLOCK_REGEX = /```json\s*([\s\S]+?)```\s*$/i
+
+function parseAssistantAction(reply: string): { reply: string; action?: AssistantAction } {
+  const match = reply.match(ACTION_BLOCK_REGEX)
+  if (!match) return { reply: reply.trim() }
+  const jsonText = match[1].trim()
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(jsonText)
+  } catch {
+    return { reply: reply.trim() }
+  }
+  if (!parsed || typeof parsed !== 'object') return { reply: reply.trim() }
+  const obj = parsed as Record<string, unknown>
+  if (obj.action !== 'add_transaction') return { reply: reply.trim() }
+  const txnType = obj.type === 'income' ? 'income' : obj.type === 'expense' ? 'expense' : null
+  if (!txnType) return { reply: reply.trim() }
+  const cleanReply = reply.replace(ACTION_BLOCK_REGEX, '').trim()
+  return {
+    reply: cleanReply,
+    action: {
+      type: 'add_transaction',
+      payload: {
+        type: txnType,
+        amount: normalizeAmount(obj.amount),
+        category: clampString(obj.category, 40),
+        note: clampString(obj.note, 200),
+      },
+    },
+  }
+}
+
+function parseStatementItems(text: string): ParsedStatementRow[] | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object') return null
+  const list = (parsed as { items?: unknown }).items
+  if (!Array.isArray(list)) return null
+  const out: ParsedStatementRow[] = []
+  for (const raw of list) {
+    if (!raw || typeof raw !== 'object') continue
+    const row = raw as Record<string, unknown>
+    const occurred = typeof row.occurred_on === 'string' ? row.occurred_on.trim().slice(0, 10) : ''
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(occurred)) continue
+    const amt = normalizeAmount(row.amount)
+    if (typeof amt !== 'number') continue
+    const type = row.type === 'income' ? 'income' : row.type === 'expense' ? 'expense' : null
+    if (!type) continue
+    const description = clampString(row.description, 120)
+    out.push({ occurred_on: occurred, amount: amt, type, description })
+  }
+  return out
+}
+
 export default async function handler(request: Request): Promise<Response> {
   if (request.method !== 'POST') {
     return jsonResponse({ ok: false, status: 405, reason: 'METHOD_NOT_ALLOWED', message: 'Use POST' }, 405)
@@ -153,6 +263,10 @@ export default async function handler(request: Request): Promise<Response> {
         spokenText?: unknown
         month?: unknown
         summary?: unknown
+        rows?: unknown
+        fileBase64?: unknown
+        messages?: unknown
+        ledger?: unknown
       }
     | null
 
@@ -264,5 +378,123 @@ export default async function handler(request: Request): Promise<Response> {
     return jsonResponse({ ok: true, kind: 'advice', text }, 200)
   }
 
-  return jsonResponse({ ok: false, status: 400, reason: 'BAD_KIND', message: 'kind must be receipt | voice | advice' }, 400)
+  if (kind === 'statement-map') {
+    const rawRows = Array.isArray(body.rows) ? (body.rows as unknown[]) : null
+    if (!rawRows || !rawRows.length) {
+      return jsonResponse({ ok: false, status: 400, reason: 'BAD_ROWS', message: 'rows must be a non-empty array' }, 400)
+    }
+    const truncated = rawRows.length > 500
+    const rows = truncated ? rawRows.slice(0, 500) : rawRows
+    const prompt = buildStatementMapPrompt(rows)
+    const result = await callGemini({
+      apiKey,
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: { responseMimeType: 'application/json', temperature: 0.0 },
+      }),
+    })
+    if (!result.ok) {
+      return jsonResponse(
+        { ok: false, status: result.status, reason: result.reason, message: result.message },
+        result.status >= 400 && result.status < 600 ? result.status : 502,
+      )
+    }
+    const text = result.data.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+    const items = parseStatementItems(text)
+    if (!items) {
+      return jsonResponse({ ok: false, status: 502, reason: 'BAD_JSON', message: 'Gemini did not return valid statement JSON' }, 502)
+    }
+    return jsonResponse({ ok: true, kind: 'statement', items, truncated }, 200)
+  }
+
+  if (kind === 'statement-image') {
+    const fileBase64 = typeof body.fileBase64 === 'string' ? body.fileBase64 : ''
+    const mimeType = typeof body.mimeType === 'string' && body.mimeType ? body.mimeType : ''
+    if (!fileBase64 || !mimeType) {
+      return jsonResponse({ ok: false, status: 400, reason: 'BAD_FILE', message: 'fileBase64 and mimeType are required' }, 400)
+    }
+    const prompt = buildStatementImagePrompt()
+    const result = await callGemini({
+      apiKey,
+      body: JSON.stringify({
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { text: prompt },
+              { inline_data: { mime_type: mimeType, data: fileBase64 } },
+            ],
+          },
+        ],
+        generationConfig: { responseMimeType: 'application/json', temperature: 0.0 },
+      }),
+    })
+    if (!result.ok) {
+      return jsonResponse(
+        { ok: false, status: result.status, reason: result.reason, message: result.message },
+        result.status >= 400 && result.status < 600 ? result.status : 502,
+      )
+    }
+    const text = result.data.candidates?.[0]?.content?.parts?.[0]?.text ?? ''
+    const items = parseStatementItems(text)
+    if (!items) {
+      return jsonResponse({ ok: false, status: 502, reason: 'BAD_JSON', message: 'Gemini did not return valid statement JSON' }, 502)
+    }
+    return jsonResponse({ ok: true, kind: 'statement', items }, 200)
+  }
+
+  if (kind === 'chat') {
+    const ledger = body.ledger
+    const messagesIn = Array.isArray(body.messages) ? (body.messages as unknown[]) : []
+    if (!ledger || typeof ledger !== 'object') {
+      return jsonResponse({ ok: false, status: 400, reason: 'BAD_LEDGER', message: 'ledger object is required' }, 400)
+    }
+    if (!messagesIn.length) {
+      return jsonResponse({ ok: false, status: 400, reason: 'BAD_MESSAGES', message: 'messages array required' }, 400)
+    }
+    const trimmed = messagesIn.slice(-12)
+    const ledgerText = JSON.stringify(ledger).slice(0, 12_000)
+    const systemPrompt = buildChatSystemPrompt()
+    const contents: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> = []
+    contents.push({
+      role: 'user',
+      parts: [
+        { text: systemPrompt },
+        { text: `קלסר (ledger) JSON:\n${ledgerText}` },
+      ],
+    })
+    contents.push({ role: 'model', parts: [{ text: 'הבנתי, הקלסר נטען. אני מוכן לעזור.' }] })
+    for (const raw of trimmed) {
+      if (!raw || typeof raw !== 'object') continue
+      const m = raw as { role?: unknown; content?: unknown }
+      const role = m.role === 'assistant' ? 'model' : m.role === 'user' ? 'user' : null
+      const content = typeof m.content === 'string' ? m.content : ''
+      if (!role || !content) continue
+      contents.push({ role, parts: [{ text: content }] })
+    }
+    if (!contents.some((c) => c.role === 'user' && c.parts[0]?.text !== systemPrompt && c.parts[0]?.text?.startsWith('קלסר') !== true)) {
+      return jsonResponse({ ok: false, status: 400, reason: 'BAD_MESSAGES', message: 'no user message found' }, 400)
+    }
+    const result = await callGemini({
+      apiKey,
+      body: JSON.stringify({
+        contents,
+        generationConfig: { temperature: 0.4 },
+      }),
+    })
+    if (!result.ok) {
+      return jsonResponse(
+        { ok: false, status: result.status, reason: result.reason, message: result.message },
+        result.status >= 400 && result.status < 600 ? result.status : 502,
+      )
+    }
+    const text = result.data.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? ''
+    if (!text) {
+      return jsonResponse({ ok: false, status: 502, reason: 'EMPTY_TEXT', message: 'Gemini did not return text' }, 502)
+    }
+    const { reply, action } = parseAssistantAction(text)
+    return jsonResponse({ ok: true, kind: 'chat', reply, action }, 200)
+  }
+
+  return jsonResponse({ ok: false, status: 400, reason: 'BAD_KIND', message: 'kind must be receipt | voice | advice | statement-map | statement-image | chat' }, 400)
 }

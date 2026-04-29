@@ -61,6 +61,7 @@ npx vercel dev
 - `supabase/migrations/202604290240_fix_auto_post_function_conflict.sql` — תיקון פונקציית auto-post למניעת שגיאת ON CONFLICT
 - `supabase/migrations/202604290200_receipts_storage.sql` — קבצים מצורפים לתנועות + bucket/policies ב-Storage
 - `supabase/migrations/202604290230_recurring_auto_post_transactions.sql` — דגל auto-post לקבועים + יצירת transactions אוטומטית (ללא כפילויות) לכל חודש
+- `supabase/migrations/202604300100_assistant_messages.sql` — היסטוריית הצ׳אט של העוזר האישי (per-household, per-user RLS)
 
 אפשרות 1 (SQL Editor ב-Supabase):
 - לפתוח את SQL Editor
@@ -85,6 +86,8 @@ supabase db push
 - FAB להוספת הוצאה/הכנסה; טופס מפורט במסך תנועות
 - אחרי הרצת מיגרציית recurring: בכל טעינת חודש נקראת `ensure_month_plans_from_templates` ומתעדכן התכנון לפי התבניות
 - ניתן לצלם/להעלות קבלה, לנתח ב-AI למילוי אוטומטי, ולשמור קובץ מצורף לתנועה עם אפשרות עריכה/החלפה
+- מסך **השוואה לבנק**: העלאת דף תנועות (CSV / Excel / PDF / תמונה) לטווח חודשים, ניתוח אוטומטי (CSV/Excel נפתח בצד הלקוח עם SheetJS, PDF/תמונה נשלח ל-Gemini), השוואה מול התנועות הקיימות, והוספה מרובה / מחיקה
+- מסך **עוזר אישי** (Gemini Chat): צ׳אט בעברית מבוסס נתוני הקלסר שלך (חודש נוכחי, 3 חודשים אחרונים, קטגוריות מובילות, 30 תנועות אחרונות). בקשה להוסיף הוצאה/הכנסה פותחת את טופס ההוספה עם שדות מולאים מראש לאישור
 
 ## המשך מומלץ
 
