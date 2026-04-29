@@ -28,6 +28,7 @@ export interface FinanceEntry {
   created_at: string
   owner_email?: string | null
   owner_name?: string | null
+  owner_avatar_url?: string | null
   account_name?: string | null
   receipt_url?: string | null
   is_fixed?: boolean
@@ -73,6 +74,7 @@ export interface FinancialAccount {
 export interface UserProfileView {
   full_name: string | null
   email: string | null
+  avatar_path: string | null
   avatar_url: string | null
 }
 

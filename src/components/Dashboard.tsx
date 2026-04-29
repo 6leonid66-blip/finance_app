@@ -17,10 +17,12 @@ type DashboardProps = {
   onSelectAccount: (id: string) => void
   loading: boolean
   onSignOut: () => void
+  currentUserId: string
   profile: UserProfileView
-  onSaveProfile: (next: { full_name: string; avatar_url: string }) => Promise<{ ok: boolean; message: string }>
-  householdCode: string
-  onJoinByCode: (code: string) => Promise<{ ok: boolean; message: string }>
+  onSaveProfile: (next: { full_name: string; avatar_url: string; avatar_path: string }) => Promise<{ ok: boolean; message: string }>
+  onUploadProfilePhoto: (
+    file: File,
+  ) => Promise<{ ok: boolean; message: string; avatar_path?: string; avatar_url?: string }>
   scopeMode: 'personal' | 'shared'
   onScopeModeChange: (scope: 'personal' | 'shared') => void
 }
@@ -49,10 +51,10 @@ export function Dashboard({
   onSelectAccount,
   loading,
   onSignOut,
+  currentUserId,
   profile,
   onSaveProfile,
-  householdCode,
-  onJoinByCode,
+  onUploadProfilePhoto,
   scopeMode,
   onScopeModeChange,
 }: DashboardProps) {
@@ -69,13 +71,10 @@ export function Dashboard({
   const [installHintText, setInstallHintText] = useState(
     defaultIosHint ? 'iPhone: Share → Add to Home Screen כדי להתקין.' : '',
   )
-  const [joinCode, setJoinCode] = useState('')
-  const [joinLoading, setJoinLoading] = useState(false)
-  const [joinMessage, setJoinMessage] = useState<string | null>(null)
-  const [showHouseholdTools, setShowHouseholdTools] = useState(false)
   const [showProfile, setShowProfile] = useState(false)
   const [profileName, setProfileName] = useState(profile.full_name ?? '')
   const [profileAvatarUrl, setProfileAvatarUrl] = useState(profile.avatar_url ?? '')
+  const [profileAvatarPath, setProfileAvatarPath] = useState(profile.avatar_path ?? '')
   const [profileSaving, setProfileSaving] = useState(false)
   const [profileMessage, setProfileMessage] = useState<string | null>(null)
   const [advisorLoading, setAdvisorLoading] = useState(false)
@@ -87,6 +86,26 @@ export function Dashboard({
     if (pieces.length >= 2) return `${pieces[0][0] ?? ''}${pieces[1][0] ?? ''}`.toUpperCase()
     return source.slice(0, 2).toUpperCase()
   }, [profile.full_name, profile.email])
+
+  const familyMembers = useMemo(() => {
+    const members = new Map<string, { name: string; avatar_url: string | null }>()
+    entries.forEach((entry) => {
+      if (!entry.owner_id) return
+      if (!members.has(entry.owner_id)) {
+        members.set(entry.owner_id, {
+          name: entry.owner_name?.trim() || entry.owner_email?.split('@')[0] || 'משתמש',
+          avatar_url: entry.owner_avatar_url ?? null,
+        })
+      }
+    })
+    if (!members.has(currentUserId)) {
+      members.set(currentUserId, {
+        name: profile.full_name?.trim() || profile.email?.split('@')[0] || 'אני',
+        avatar_url: profile.avatar_url ?? null,
+      })
+    }
+    return Array.from(members.entries()).map(([id, value]) => ({ id, ...value }))
+  }, [entries, currentUserId, profile.full_name, profile.email, profile.avatar_url])
 
   useEffect(() => {
     const onBeforeInstall = (event: Event) => {
@@ -128,39 +147,32 @@ export function Dashboard({
     setInstallHintText('Android/Chrome: פתח תפריט ⋮ ואז Install app / Add to Home screen')
   }
 
-  const copyHouseholdCode = async () => {
-    try {
-      await navigator.clipboard.writeText(householdCode)
-      setJoinMessage('קוד הבית הועתק')
-    } catch {
-      setJoinMessage('לא הצלחתי להעתיק. אפשר להעתיק ידנית.')
-    }
-  }
-
-  const submitJoinCode = async () => {
-    const code = joinCode.trim()
-    if (!code) {
-      setJoinMessage('יש להזין קוד בית')
-      return
-    }
-    setJoinLoading(true)
-    const result = await onJoinByCode(code)
-    setJoinMessage(result.message)
-    setJoinLoading(false)
-    if (result.ok) setJoinCode('')
-  }
-
   const submitProfile = async () => {
     setProfileSaving(true)
     const result = await onSaveProfile({
       full_name: profileName,
       avatar_url: profileAvatarUrl,
+      avatar_path: profileAvatarPath,
     })
     setProfileMessage(result.message)
     setProfileSaving(false)
     if (result.ok) {
       setTimeout(() => setShowProfile(false), 650)
     }
+  }
+
+  const onPickProfilePhoto = async (file?: File | null) => {
+    if (!file) return
+    setProfileSaving(true)
+    const uploaded = await onUploadProfilePhoto(file)
+    if (uploaded.ok) {
+      setProfileAvatarPath(uploaded.avatar_path ?? '')
+      setProfileAvatarUrl(uploaded.avatar_url ?? '')
+      setProfileMessage('תמונה הועלתה בהצלחה')
+    } else {
+      setProfileMessage(uploaded.message)
+    }
+    setProfileSaving(false)
   }
 
   const balanceActual = actualIncome - actualExpense
@@ -352,6 +364,7 @@ export function Dashboard({
               onClick={() => {
                 setProfileName(profile.full_name ?? '')
                 setProfileAvatarUrl(profile.avatar_url ?? '')
+                setProfileAvatarPath(profile.avatar_path ?? '')
                 setProfileMessage(null)
                 setShowProfile(true)
               }}
@@ -363,13 +376,27 @@ export function Dashboard({
               )}
               <span>{profile.full_name?.trim() || 'הפרופיל שלי'}</span>
             </button>
-            <button type="button" className="btn-secondary btn-xs" onClick={() => setShowHouseholdTools(true)}>
-              שיתוף בית
-            </button>
             <button type="button" className="btn-ghost" onClick={() => void onSignOut()}>
               יציאה
             </button>
           </div>
+        </div>
+      </section>
+      <section className="card family-strip">
+        <strong>המשפחה שלנו</strong>
+        <div className="family-members">
+          {familyMembers.map((member) => (
+            <div key={member.id} className="family-member">
+              {member.avatar_url ? (
+                <img src={member.avatar_url} alt={member.name} className="family-avatar" />
+              ) : (
+                <span className="profile-chip-initials family-avatar-initials">
+                  {member.name.slice(0, 2).toUpperCase()}
+                </span>
+              )}
+              <span>{member.name}</span>
+            </div>
+          ))}
         </div>
       </section>
 
@@ -397,32 +424,23 @@ export function Dashboard({
         </div>
       </div>
 
-      <section className="install-cta card">
-        <div>
-          <strong>התקן אפליקציה לטלפון</strong>
-          <p className="muted">
-            {isStandalone
-              ? 'האפליקציה כבר מותקנת במכשיר זה.'
-              : installHintText || 'התקנה מהירה למסך הבית באנדרואיד / אייפון.'}
-          </p>
-          {!deferredPrompt && !isStandalone ? (
-            <p className="muted small">אם אין חלון התקנה: Android/Chrome → תפריט ⋮ → Install app.</p>
-          ) : null}
-          {defaultIosHint && !isStandalone ? (
-            <p className="muted small">iPhone/Safari → Share → Add to Home Screen.</p>
-          ) : null}
-        </div>
-        <div className="row-actions">
-          <button
-            type="button"
-            className="btn-primary btn-xs install-btn"
-            onClick={() => void handleInstall()}
-            disabled={isStandalone}
-          >
-            {isStandalone ? 'מותקן' : 'הורד אפליקציה'}
-          </button>
-        </div>
-      </section>
+      {!isStandalone ? (
+        <section className="install-cta card">
+          <div>
+            <strong>התקן אפליקציה לטלפון</strong>
+            <p className="muted">{installHintText || 'התקנה מהירה למסך הבית באנדרואיד / אייפון.'}</p>
+            {!deferredPrompt ? (
+              <p className="muted small">אם אין חלון התקנה: Android/Chrome → תפריט ⋮ → Install app.</p>
+            ) : null}
+            {defaultIosHint ? <p className="muted small">iPhone/Safari → Share → Add to Home Screen.</p> : null}
+          </div>
+          <div className="row-actions">
+            <button type="button" className="btn-primary btn-xs install-btn" onClick={() => void handleInstall()}>
+              הורד אפליקציה
+            </button>
+          </div>
+        </section>
+      ) : null}
 
       {loading ? <p className="muted">טוען נתונים…</p> : null}
 
@@ -630,6 +648,10 @@ export function Dashboard({
                 className="ltr-input"
               />
             </label>
+            <label className="stack" style={{ marginTop: 8 }}>
+              <span>או העלאת תמונה ישירות ל-Supabase</span>
+              <input type="file" accept="image/*" onChange={(e) => void onPickProfilePhoto(e.target.files?.[0])} />
+            </label>
             <div className="row-actions" style={{ marginTop: 10 }}>
               <button type="button" className="btn-primary btn-xs" disabled={profileSaving} onClick={() => void submitProfile()}>
                 {profileSaving ? 'שומר…' : 'שמור פרופיל'}
@@ -639,39 +661,6 @@ export function Dashboard({
               </button>
             </div>
             {profileMessage ? <p className="inline-status">{profileMessage}</p> : null}
-          </article>
-        </div>
-      ) : null}
-      {showHouseholdTools ? (
-        <div className="modal-backdrop" onClick={() => setShowHouseholdTools(false)}>
-          <article className="card card-form modal-card" onClick={(e) => e.stopPropagation()}>
-            <h2 className="card-heading">שיתוף בית / חיבור חשבון שני</h2>
-            <p className="muted small">
-              קוד הבית שלך: <code>{householdCode}</code>
-            </p>
-            <div className="row-actions">
-              <button type="button" className="btn-secondary btn-xs" onClick={() => void copyHouseholdCode()}>
-                העתק קוד
-              </button>
-            </div>
-            <label className="stack" style={{ marginTop: 8 }}>
-              <span>הצטרפות לבית קיים לפי קוד</span>
-              <input
-                type="text"
-                value={joinCode}
-                onChange={(e) => setJoinCode(e.target.value)}
-                placeholder="הדבק כאן קוד בית"
-              />
-            </label>
-            <div className="row-actions">
-              <button type="button" className="btn-primary btn-xs" disabled={joinLoading} onClick={() => void submitJoinCode()}>
-                {joinLoading ? 'מחבר…' : 'חבר לחשבון המשפחתי'}
-              </button>
-              <button type="button" className="btn-secondary btn-xs" onClick={() => setShowHouseholdTools(false)}>
-                סגור
-              </button>
-            </div>
-            {joinMessage ? <p className="inline-status">{joinMessage}</p> : null}
           </article>
         </div>
       ) : null}

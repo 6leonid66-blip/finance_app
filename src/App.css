@@ -244,6 +244,40 @@
   height: 48px;
 }
 
+.family-strip {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.family-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.family-member {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 10px 4px 4px;
+  background: color-mix(in srgb, var(--card) 90%, #eff6ff 10%);
+}
+
+.family-avatar,
+.family-avatar-initials {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+}
+
+.family-avatar {
+  object-fit: cover;
+  border: 1px solid var(--border);
+}
+
 .accounts-section {
   margin-top: 18px;
   position: relative;

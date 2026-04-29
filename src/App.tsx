@@ -10,6 +10,7 @@ import { isSupabaseConfigured, supabase } from './supabase'
 import type { AppScreen, FinanceEntry, FinancialAccount, Household, UserProfileView } from './types'
 import { monthValueToRange } from './lib/month'
 import { getReceiptPublicUrl } from './lib/receiptStorage'
+import { uploadProfileImage } from './lib/profileStorage'
 
 function App() {
   const [scopeMode, setScopeMode] = useState<'personal' | 'shared'>('personal')
@@ -49,6 +50,7 @@ function App() {
   const [profile, setProfile] = useState<UserProfileView>({
     full_name: null,
     email: null,
+    avatar_path: null,
     avatar_url: null,
   })
   const [selectedAccountId, setSelectedAccountId] = useState<string>('')
@@ -177,10 +179,20 @@ function App() {
         .from('profiles')
         .upsert({ id: userId, email: emailAddress }, { onConflict: 'id' })
       if (profileError) throw profileError
-      const { data: myProfile } = await supabase.from('profiles').select('full_name').eq('id', userId).maybeSingle()
+      const profileWithAvatar = await supabase
+        .from('profiles')
+        .select('full_name,avatar_url')
+        .eq('id', userId)
+        .maybeSingle()
+      let profileRow = profileWithAvatar.data as { full_name?: string | null; avatar_url?: string | null } | null
+      if (profileWithAvatar.error && profileWithAvatar.error.code === '42703') {
+        const profileFallback = await supabase.from('profiles').select('full_name').eq('id', userId).maybeSingle()
+        profileRow = profileFallback.data as { full_name?: string | null } | null
+      }
       setProfile((prev) => ({
         ...prev,
-        full_name: (myProfile as { full_name?: string | null } | null)?.full_name ?? null,
+        full_name: profileRow?.full_name ?? null,
+        avatar_url: profileRow?.avatar_url ?? prev.avatar_url,
         email: userEmail ?? prev.email,
       }))
 
@@ -340,17 +352,26 @@ function App() {
         auto_post_month: (row as { auto_post_month?: string | null }).auto_post_month ?? null,
       }))
       const ownerIds = [...new Set(rows.map((r) => r.owner_id).filter(Boolean))]
-      let profileMap = new Map<string, { email: string | null; full_name: string | null }>()
+      let profileMap = new Map<string, { email: string | null; full_name: string | null; avatar_url: string | null }>()
       if (ownerIds.length) {
-        const { data: profs, error: pErr } = await supabase
+        const profileWithAvatar = await supabase
           .from('profiles')
-          .select('id,email,full_name')
+          .select('id,email,full_name,avatar_url')
           .in('id', ownerIds)
-        if (!pErr && profs) {
+        let profs = profileWithAvatar.data as
+          | Array<{ id: string; email: string | null; full_name: string | null; avatar_url: string | null }>
+          | null
+        if (profileWithAvatar.error && profileWithAvatar.error.code === '42703') {
+          const profileFallback = await supabase.from('profiles').select('id,email,full_name').in('id', ownerIds)
+          profs = (profileFallback.data as Array<{ id: string; email: string | null; full_name: string | null }> | null)?.map(
+            (p) => ({ ...p, avatar_url: null }),
+          ) ?? null
+        }
+        if (profs) {
           profileMap = new Map(
-            profs.map((p: { id: string; email: string | null; full_name: string | null }) => [
+            profs.map((p) => [
               p.id,
-              { email: p.email, full_name: p.full_name },
+              { email: p.email, full_name: p.full_name, avatar_url: p.avatar_url ?? null },
             ]),
           )
         }
@@ -393,6 +414,7 @@ function App() {
             ...row,
             owner_email: p?.email ?? null,
             owner_name: p?.full_name ?? null,
+            owner_avatar_url: p?.avatar_url ?? null,
             account_name: row.account_id ? accountMap.get(row.account_id) ?? null : null,
             receipt_url: getReceiptPublicUrl(row.receipt_path),
             is_fixed: recurringKey.has(`${row.type}__${row.category}`),
@@ -447,6 +469,7 @@ function App() {
         setProfile((prev) => ({
           ...prev,
           email: user?.email ?? null,
+          avatar_path: typeof user?.user_metadata?.avatar_path === 'string' ? user.user_metadata.avatar_path : null,
           avatar_url: typeof user?.user_metadata?.avatar_url === 'string' ? user.user_metadata.avatar_url : null,
         }))
       })
@@ -463,6 +486,8 @@ function App() {
       setProfile((prev) => ({
         ...prev,
         email: session?.user.email ?? null,
+        avatar_path:
+          typeof session?.user.user_metadata?.avatar_path === 'string' ? session.user.user_metadata.avatar_path : null,
         avatar_url:
           typeof session?.user.user_metadata?.avatar_url === 'string' ? session.user.user_metadata.avatar_url : null,
       }))
@@ -471,7 +496,7 @@ function App() {
         setEntries([])
         setHistoryEntries([])
         setAccounts([])
-        setProfile({ full_name: null, email: null, avatar_url: null })
+        setProfile({ full_name: null, email: null, avatar_path: null, avatar_url: null })
         setSelectedAccountId('')
       }
     })
@@ -601,47 +626,67 @@ function App() {
     if (household) void loadMonthlyData(household.id, selectedMonth)
   }
 
-  const joinHouseholdByCode = async (code: string) => {
+  const uploadProfilePhoto = async (file: File) => {
     if (!supabase || !sessionUserId) return { ok: false, message: 'אין משתמש מחובר' }
     try {
-      const { data, error } = await supabase.rpc('join_household_by_code', {
-        p_household_code: code.trim(),
+      const uploaded = await uploadProfileImage({
+        file,
+        userId: sessionUserId,
+        previousPath: profile.avatar_path,
       })
-      if (error) throw error
-      const row = Array.isArray(data) ? data[0] : null
-      const joinedHouseholdId = (row as { out_household_id?: string } | null)?.out_household_id
-      const joinedHouseholdName = (row as { out_household_name?: string } | null)?.out_household_name
-      if (!joinedHouseholdId) {
-        return { ok: false, message: 'לא נמצא בית עם הקוד הזה' }
+      setProfile((prev) => ({
+        ...prev,
+        avatar_path: uploaded.avatar_path,
+        avatar_url: uploaded.avatar_url,
+      }))
+      return {
+        ok: true,
+        message: 'תמונת פרופיל הועלתה בהצלחה',
+        avatar_path: uploaded.avatar_path,
+        avatar_url: uploaded.avatar_url ?? '',
       }
-      setHousehold({ id: joinedHouseholdId, name: joinedHouseholdName ?? 'הבית שלנו' })
-      await ensureUserAccount(joinedHouseholdId, sessionUserId)
-      await loadMonthlyData(joinedHouseholdId, selectedMonth)
-      return { ok: true, message: 'החשבון חובר בהצלחה לבית המשפחתי' }
     } catch (error) {
-      return { ok: false, message: `חיבור נכשל: ${describeError(error)}` }
+      return { ok: false, message: `העלאת תמונה נכשלה: ${describeError(error)}` }
     }
   }
 
-  const saveProfile = async (next: { full_name: string; avatar_url: string }) => {
+  const saveProfile = async (next: { full_name: string; avatar_url: string; avatar_path: string }) => {
     if (!supabase || !sessionUserId) return { ok: false, message: 'אין משתמש מחובר' }
     try {
       const trimmedName = next.full_name.trim()
       const trimmedAvatar = next.avatar_url.trim()
-      const { error: updateProfileError } = await supabase
+      const trimmedAvatarPath = next.avatar_path.trim()
+      let updateProfileError = (await supabase
         .from('profiles')
-        .update({ full_name: trimmedName || null })
-        .eq('id', sessionUserId)
+        .update({
+          full_name: trimmedName || null,
+          avatar_url: trimmedAvatar || null,
+        })
+        .eq('id', sessionUserId)).error
+      if (updateProfileError && updateProfileError.code === '42703') {
+        updateProfileError = (
+          await supabase
+            .from('profiles')
+            .update({
+              full_name: trimmedName || null,
+            })
+            .eq('id', sessionUserId)
+        ).error
+      }
       if (updateProfileError) throw updateProfileError
 
       const { error: updateAuthError } = await supabase.auth.updateUser({
-        data: { avatar_url: trimmedAvatar || null },
+        data: {
+          avatar_url: trimmedAvatar || null,
+          avatar_path: trimmedAvatarPath || null,
+        },
       })
       if (updateAuthError) throw updateAuthError
 
       setProfile((prev) => ({
         ...prev,
         full_name: trimmedName || null,
+        avatar_path: trimmedAvatarPath || null,
         avatar_url: trimmedAvatar || null,
       }))
       return { ok: true, message: 'הפרופיל נשמר בהצלחה' }
@@ -785,9 +830,9 @@ function App() {
                 loading={loadingData}
                 onSignOut={signOut}
                 profile={profile}
+                currentUserId={sessionUserId}
                 onSaveProfile={saveProfile}
-                householdCode={household.id}
-                onJoinByCode={joinHouseholdByCode}
+                onUploadProfilePhoto={uploadProfilePhoto}
                 scopeMode={scopeMode}
                 onScopeModeChange={setScopeMode}
               />

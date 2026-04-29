@@ -373,7 +373,11 @@ export function TransactionsView({
       <article className="card card-form bank-feed-head">
         <div className="feed-filter-row">
           <strong>פיד תנועות</strong>
-          <MonthValuePicker value={selectedMonth} onChange={onSelectedMonthChange} className="tx-month-picker" />
+          <MonthValuePicker
+            value={selectedMonth}
+            onChange={onSelectedMonthChange}
+            className="tx-month-picker dashboard-month-picker"
+          />
           <div className="segmented scope-mini">
             <button
               type="button"
