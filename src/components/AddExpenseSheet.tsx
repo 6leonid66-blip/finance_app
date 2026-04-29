@@ -178,6 +178,23 @@ export function AddExpenseSheet({
     }
   }
 
+  const inferFromSpokenText = (spokenText: string) => {
+    const normalized = spokenText.trim()
+    if (!normalized) return
+    const amountMatch = normalized.match(/(\d+(?:[.,]\d{1,2})?)/)
+    if (amountMatch?.[1]) {
+      const parsedAmount = Number(amountMatch[1].replace(',', '.'))
+      if (Number.isFinite(parsedAmount) && parsedAmount > 0) {
+        setAmount(Number.isInteger(parsedAmount) ? String(parsedAmount) : parsedAmount.toFixed(2))
+      }
+    }
+    const matchedCategory = EXPENSE_CATEGORIES.find((c) => normalized.includes(c))
+    if (matchedCategory) {
+      setCategory(matchedCategory)
+    }
+    setNote((prev) => (prev.trim() ? prev : normalized))
+  }
+
   const analyzeReceipt = async (fileArg?: File) => {
     const image = fileArg ?? receiptFile
     if (!image) {
@@ -240,7 +257,14 @@ export function AddExpenseSheet({
       setNote((prev) => (prev.trim() ? prev : spokenText))
       void analyzeSpokenExpenseWithGemini({ spokenText, categories: EXPENSE_CATEGORIES })
         .then((parsed) => applyGeminiResult(parsed))
-        .catch((err) => setError(err instanceof Error ? err.message : 'פענוח קול נכשל'))
+        .catch((err) => {
+          inferFromSpokenText(spokenText)
+          setError(
+            err instanceof Error
+              ? `${err.message}. מילאתי את מה שאפשר מתוך הטקסט הקולי, אפשר להשלים ידנית ולאשר.`
+              : 'פענוח קול נכשל. מילאתי חלקית מהטקסט הקולי.',
+          )
+        })
     }
     recognition.start()
   }

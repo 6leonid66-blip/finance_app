@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { FinanceEntry, FinancialAccount } from '../types'
+import type { FinanceEntry, FinancialAccount, UserProfileView } from '../types'
 import { MonthValuePicker } from './MonthValuePicker'
+import { generateHouseholdAdviceWithGemini } from '../lib/geminiReceipt'
 
 type DashboardProps = {
   selectedMonth: string
@@ -16,6 +17,8 @@ type DashboardProps = {
   onSelectAccount: (id: string) => void
   loading: boolean
   onSignOut: () => void
+  profile: UserProfileView
+  onSaveProfile: (next: { full_name: string; avatar_url: string }) => Promise<{ ok: boolean; message: string }>
   householdCode: string
   onJoinByCode: (code: string) => Promise<{ ok: boolean; message: string }>
   scopeMode: 'personal' | 'shared'
@@ -46,6 +49,8 @@ export function Dashboard({
   onSelectAccount,
   loading,
   onSignOut,
+  profile,
+  onSaveProfile,
   householdCode,
   onJoinByCode,
   scopeMode,
@@ -68,6 +73,20 @@ export function Dashboard({
   const [joinLoading, setJoinLoading] = useState(false)
   const [joinMessage, setJoinMessage] = useState<string | null>(null)
   const [showHouseholdTools, setShowHouseholdTools] = useState(false)
+  const [showProfile, setShowProfile] = useState(false)
+  const [profileName, setProfileName] = useState(profile.full_name ?? '')
+  const [profileAvatarUrl, setProfileAvatarUrl] = useState(profile.avatar_url ?? '')
+  const [profileSaving, setProfileSaving] = useState(false)
+  const [profileMessage, setProfileMessage] = useState<string | null>(null)
+  const [advisorLoading, setAdvisorLoading] = useState(false)
+  const [advisorText, setAdvisorText] = useState<string | null>(null)
+
+  const profileInitials = useMemo(() => {
+    const source = (profile.full_name?.trim() || profile.email?.trim() || 'U').replace(/\s+/g, ' ')
+    const pieces = source.split(' ')
+    if (pieces.length >= 2) return `${pieces[0][0] ?? ''}${pieces[1][0] ?? ''}`.toUpperCase()
+    return source.slice(0, 2).toUpperCase()
+  }, [profile.full_name, profile.email])
 
   useEffect(() => {
     const onBeforeInstall = (event: Event) => {
@@ -102,6 +121,10 @@ export function Dashboard({
       setInstallHintText('iPhone: פתח Safari → Share → Add to Home Screen')
       return
     }
+    if (typeof window !== 'undefined' && window.location.protocol !== 'https:') {
+      setInstallHintText('התקנת PWA באנדרואיד דורשת HTTPS. פתח דרך הדומיין המאובטח (Vercel).')
+      return
+    }
     setInstallHintText('Android/Chrome: פתח תפריט ⋮ ואז Install app / Add to Home screen')
   }
 
@@ -125,6 +148,19 @@ export function Dashboard({
     setJoinMessage(result.message)
     setJoinLoading(false)
     if (result.ok) setJoinCode('')
+  }
+
+  const submitProfile = async () => {
+    setProfileSaving(true)
+    const result = await onSaveProfile({
+      full_name: profileName,
+      avatar_url: profileAvatarUrl,
+    })
+    setProfileMessage(result.message)
+    setProfileSaving(false)
+    if (result.ok) {
+      setTimeout(() => setShowProfile(false), 650)
+    }
   }
 
   const balanceActual = actualIncome - actualExpense
@@ -271,22 +307,71 @@ export function Dashboard({
     return `conic-gradient(${parts.join(', ')})`
   }, [expenseDistribution])
 
+  const runAdvisor = async () => {
+    const summary = [
+      `actualIncome=${actualIncome}`,
+      `actualExpense=${actualExpense}`,
+      `forecastIncome=${plannedIncome}`,
+      `forecastExpense=${plannedExpense}`,
+      `topCategory=${expenseDistribution.rows[0]?.category ?? 'none'}`,
+      `topCategoryAmount=${expenseDistribution.rows[0]?.amount ?? 0}`,
+      `insights=${insights.join(' | ')}`,
+    ].join('\n')
+    setAdvisorLoading(true)
+    try {
+      const text = await generateHouseholdAdviceWithGemini({
+        month: selectedMonth,
+        summary,
+      })
+      setAdvisorText(text)
+    } catch (error) {
+      const fallback = [
+        'המלצה 1: בדוק את הקטגוריה המובילה והגדר לה תקרת הוצאה חודשית.',
+        'המלצה 2: אם ההוצאות גבוהות מהתחזית, צמצם 5%-10% בקטגוריות הלא חיוניות.',
+        'המלצה 3: שמור כרית ביטחון של לפחות 10% מההכנסה החודשית.',
+      ]
+      const msg = error instanceof Error ? error.message : 'שגיאת AI'
+      setAdvisorText(`${fallback.join('\n')}\n\nהערה: ${msg}`)
+    } finally {
+      setAdvisorLoading(false)
+    }
+  }
+
   return (
     <div className="dashboard">
-      <div className="dashboard-top">
-        <div>
-          <h1 className="dashboard-title">הבית שלנו</h1>
-          <p className="dashboard-sub">סיכום חודשי — תחזית חכמה מול בפועל</p>
+      <section className="dashboard-hero card">
+        <div className="dashboard-top">
+          <div>
+            <h1 className="dashboard-title">הבית שלנו</h1>
+            <p className="dashboard-sub">סיכום חודשי — תחזית חכמה מול בפועל</p>
+          </div>
+          <div className="row-actions">
+            <button
+              type="button"
+              className="profile-chip"
+              onClick={() => {
+                setProfileName(profile.full_name ?? '')
+                setProfileAvatarUrl(profile.avatar_url ?? '')
+                setProfileMessage(null)
+                setShowProfile(true)
+              }}
+            >
+              {profile.avatar_url ? (
+                <img src={profile.avatar_url} alt="avatar" className="profile-chip-avatar" />
+              ) : (
+                <span className="profile-chip-initials">{profileInitials}</span>
+              )}
+              <span>{profile.full_name?.trim() || 'הפרופיל שלי'}</span>
+            </button>
+            <button type="button" className="btn-secondary btn-xs" onClick={() => setShowHouseholdTools(true)}>
+              שיתוף בית
+            </button>
+            <button type="button" className="btn-ghost" onClick={() => void onSignOut()}>
+              יציאה
+            </button>
+          </div>
         </div>
-        <div className="row-actions">
-          <button type="button" className="btn-secondary btn-xs" onClick={() => setShowHouseholdTools(true)}>
-            שיתוף בית
-          </button>
-          <button type="button" className="btn-ghost" onClick={() => void onSignOut()}>
-            יציאה
-          </button>
-        </div>
-      </div>
+      </section>
 
       <label className="month-field month-field-dashboard">
         <span className="sr-only">חודש</span>
@@ -330,7 +415,7 @@ export function Dashboard({
         <div className="row-actions">
           <button
             type="button"
-            className="btn-primary btn-xs"
+            className="btn-primary btn-xs install-btn"
             onClick={() => void handleInstall()}
             disabled={isStandalone}
           >
@@ -426,6 +511,12 @@ export function Dashboard({
             </p>
           ))}
         </div>
+        <div className="row-actions" style={{ marginTop: 8 }}>
+          <button type="button" className="btn-primary btn-xs" onClick={() => void runAdvisor()} disabled={advisorLoading}>
+            {advisorLoading ? 'מנתח נתונים…' : 'יועץ AI — המלצות לחיסכון'}
+          </button>
+        </div>
+        {advisorText ? <pre className="advisor-output">{advisorText}</pre> : null}
       </section>
 
       <section className="trend-section card">
@@ -510,6 +601,47 @@ export function Dashboard({
           ) : null}
         </div>
       </section>
+      {showProfile ? (
+        <div className="modal-backdrop" onClick={() => setShowProfile(false)}>
+          <article className="card card-form modal-card" onClick={(e) => e.stopPropagation()}>
+            <h2 className="card-heading">הפרופיל שלי</h2>
+            <div className="profile-modal-preview">
+              {profileAvatarUrl.trim() ? (
+                <img src={profileAvatarUrl.trim()} alt="avatar preview" className="profile-modal-avatar" />
+              ) : (
+                <span className="profile-chip-initials profile-modal-initials">{profileInitials}</span>
+              )}
+              <div>
+                <strong>{profileName.trim() || 'ללא שם'}</strong>
+                <p className="muted small">{profile.email || ''}</p>
+              </div>
+            </div>
+            <label className="stack" style={{ marginTop: 8 }}>
+              <span>שם תצוגה</span>
+              <input value={profileName} onChange={(e) => setProfileName(e.target.value)} placeholder="למשל: לאוניד" />
+            </label>
+            <label className="stack" style={{ marginTop: 8 }}>
+              <span>קישור לתמונת פרופיל</span>
+              <input
+                type="url"
+                value={profileAvatarUrl}
+                onChange={(e) => setProfileAvatarUrl(e.target.value)}
+                placeholder="https://..."
+                className="ltr-input"
+              />
+            </label>
+            <div className="row-actions" style={{ marginTop: 10 }}>
+              <button type="button" className="btn-primary btn-xs" disabled={profileSaving} onClick={() => void submitProfile()}>
+                {profileSaving ? 'שומר…' : 'שמור פרופיל'}
+              </button>
+              <button type="button" className="btn-secondary btn-xs" onClick={() => setShowProfile(false)}>
+                סגור
+              </button>
+            </div>
+            {profileMessage ? <p className="inline-status">{profileMessage}</p> : null}
+          </article>
+        </div>
+      ) : null}
       {showHouseholdTools ? (
         <div className="modal-backdrop" onClick={() => setShowHouseholdTools(false)}>
           <article className="card card-form modal-card" onClick={(e) => e.stopPropagation()}>

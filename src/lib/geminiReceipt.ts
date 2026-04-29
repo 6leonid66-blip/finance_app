@@ -4,6 +4,16 @@ type ReceiptAnalysis = {
   suggestedCategory?: string
 }
 
+function mapGeminiError(status: number) {
+  if (status === 403) {
+    return 'Gemini חסום (403). בדוק שה-API key תקין, שהפעלת Gemini API ושיש הרשאות Billing.'
+  }
+  if (status === 429) {
+    return 'חריגה ממכסת Gemini. נסה שוב בעוד כמה דקות.'
+  }
+  return `Gemini API error: ${status}`
+}
+
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader()
@@ -76,7 +86,7 @@ If uncertain, set suggestedCategory to "אחר".`
   )
 
   if (!response.ok) {
-    throw new Error(`Gemini API error: ${response.status}`)
+    throw new Error(mapGeminiError(response.status))
   }
 
   const data = (await response.json()) as {
@@ -139,7 +149,7 @@ Spoken text: """${params.spokenText}"""`
     },
   )
   if (!response.ok) {
-    throw new Error(`Gemini API error: ${response.status}`)
+    throw new Error(mapGeminiError(response.status))
   }
 
   const data = (await response.json()) as {
@@ -167,5 +177,47 @@ Spoken text: """${params.spokenText}"""`
     description: description || undefined,
     suggestedCategory: suggestedCategory || undefined,
   }
+}
+
+export async function generateHouseholdAdviceWithGemini(params: {
+  month: string
+  summary: string
+}): Promise<string> {
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY as string | undefined
+  if (!apiKey) {
+    throw new Error('חסר VITE_GEMINI_API_KEY בקובץ .env')
+  }
+  const prompt = `You are a household finance advisor for an Israeli family.
+Write your response in Hebrew.
+Keep it practical and short (4 bullet points max).
+Data month: ${params.month}
+Data summary:
+${params.summary}
+Return plain text only.`
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature: 0.2,
+        },
+      }),
+    },
+  )
+  if (!response.ok) {
+    throw new Error(mapGeminiError(response.status))
+  }
+  const data = (await response.json()) as {
+    candidates?: Array<{
+      content?: { parts?: Array<{ text?: string }> }
+    }>
+  }
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
+  if (!text) throw new Error('Gemini לא החזיר המלצה')
+  return text
 }
 

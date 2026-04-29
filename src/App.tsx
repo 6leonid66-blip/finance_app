@@ -7,7 +7,7 @@ import { Dashboard } from './components/Dashboard'
 import { RecurringTemplatesPanel } from './components/RecurringTemplatesPanel'
 import { TransactionsView } from './components/TransactionsView'
 import { isSupabaseConfigured, supabase } from './supabase'
-import type { AppScreen, FinanceEntry, FinancialAccount, Household } from './types'
+import type { AppScreen, FinanceEntry, FinancialAccount, Household, UserProfileView } from './types'
 import { monthValueToRange } from './lib/month'
 import { getReceiptPublicUrl } from './lib/receiptStorage'
 
@@ -46,6 +46,11 @@ function App() {
     }>
   >([])
   const [accounts, setAccounts] = useState<FinancialAccount[]>([])
+  const [profile, setProfile] = useState<UserProfileView>({
+    full_name: null,
+    email: null,
+    avatar_url: null,
+  })
   const [selectedAccountId, setSelectedAccountId] = useState<string>('')
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
 
@@ -172,6 +177,12 @@ function App() {
         .from('profiles')
         .upsert({ id: userId, email: emailAddress }, { onConflict: 'id' })
       if (profileError) throw profileError
+      const { data: myProfile } = await supabase.from('profiles').select('full_name').eq('id', userId).maybeSingle()
+      setProfile((prev) => ({
+        ...prev,
+        full_name: (myProfile as { full_name?: string | null } | null)?.full_name ?? null,
+        email: userEmail ?? prev.email,
+      }))
 
       const { data: memberRow, error: memberError } = await supabase
         .from('household_members')
@@ -430,8 +441,14 @@ function App() {
     supabase.auth
       .getSession()
       .then(({ data }) => {
-        setSessionUserId(data.session?.user.id ?? null)
-        setSessionUserEmail(data.session?.user.email ?? null)
+        const user = data.session?.user
+        setSessionUserId(user?.id ?? null)
+        setSessionUserEmail(user?.email ?? null)
+        setProfile((prev) => ({
+          ...prev,
+          email: user?.email ?? null,
+          avatar_url: typeof user?.user_metadata?.avatar_url === 'string' ? user.user_metadata.avatar_url : null,
+        }))
       })
       .finally(() => setAuthLoading(false))
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -443,11 +460,18 @@ function App() {
       const userId = session?.user.id ?? null
       setSessionUserId(userId)
       setSessionUserEmail(session?.user.email ?? null)
+      setProfile((prev) => ({
+        ...prev,
+        email: session?.user.email ?? null,
+        avatar_url:
+          typeof session?.user.user_metadata?.avatar_url === 'string' ? session.user.user_metadata.avatar_url : null,
+      }))
       if (!userId) {
         setHousehold(null)
         setEntries([])
         setHistoryEntries([])
         setAccounts([])
+        setProfile({ full_name: null, email: null, avatar_url: null })
         setSelectedAccountId('')
       }
     })
@@ -599,6 +623,33 @@ function App() {
     }
   }
 
+  const saveProfile = async (next: { full_name: string; avatar_url: string }) => {
+    if (!supabase || !sessionUserId) return { ok: false, message: 'אין משתמש מחובר' }
+    try {
+      const trimmedName = next.full_name.trim()
+      const trimmedAvatar = next.avatar_url.trim()
+      const { error: updateProfileError } = await supabase
+        .from('profiles')
+        .update({ full_name: trimmedName || null })
+        .eq('id', sessionUserId)
+      if (updateProfileError) throw updateProfileError
+
+      const { error: updateAuthError } = await supabase.auth.updateUser({
+        data: { avatar_url: trimmedAvatar || null },
+      })
+      if (updateAuthError) throw updateAuthError
+
+      setProfile((prev) => ({
+        ...prev,
+        full_name: trimmedName || null,
+        avatar_url: trimmedAvatar || null,
+      }))
+      return { ok: true, message: 'הפרופיל נשמר בהצלחה' }
+    } catch (error) {
+      return { ok: false, message: `שמירת פרופיל נכשלה: ${describeError(error)}` }
+    }
+  }
+
   const showFab = screen === 'dashboard' || screen === 'transactions'
 
   return (
@@ -733,6 +784,8 @@ function App() {
                 onSelectAccount={setSelectedAccountId}
                 loading={loadingData}
                 onSignOut={signOut}
+                profile={profile}
+                onSaveProfile={saveProfile}
                 householdCode={household.id}
                 onJoinByCode={joinHouseholdByCode}
                 scopeMode={scopeMode}

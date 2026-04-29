@@ -39,6 +39,16 @@
   padding: 12px;
   box-shadow: var(--shadow);
   border: 1px solid var(--border);
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.card:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--primary) 35%, var(--border));
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
 }
 
 .card.warning {
@@ -159,6 +169,12 @@
   gap: 12px;
 }
 
+.dashboard-hero {
+  background:
+    radial-gradient(120% 120% at 100% 0%, rgba(59, 130, 246, 0.18), transparent 55%),
+    linear-gradient(180deg, color-mix(in srgb, var(--card) 92%, #dbeafe 8%), var(--card));
+}
+
 .dashboard-top {
   display: flex;
   justify-content: space-between;
@@ -177,6 +193,55 @@
   margin: 4px 0 0;
   color: var(--muted);
   font-size: 0.95rem;
+}
+
+.profile-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 999px;
+  padding: 4px 10px 4px 4px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.profile-chip-avatar,
+.profile-modal-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 1px solid var(--border);
+}
+
+.profile-chip-initials {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: linear-gradient(135deg, #2563eb, #0ea5e9);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.profile-modal-preview {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  padding: 10px;
+}
+
+.profile-modal-avatar,
+.profile-modal-initials {
+  width: 48px;
+  height: 48px;
 }
 
 .accounts-section {
@@ -991,6 +1056,24 @@
   margin-bottom: 12px;
 }
 
+.install-btn {
+  min-height: 38px;
+  min-width: 132px;
+}
+
+.advisor-output {
+  margin: 10px 0 0;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--card) 88%, var(--primary) 12%);
+  color: var(--text);
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
 input[type='date'],
 input[type='month'] {
   direction: ltr;
@@ -1159,6 +1242,10 @@ input[type='month'] {
   }
 
   .feed-filter-row > .btn-secondary {
+    width: 100%;
+  }
+
+  .install-btn {
     width: 100%;
   }
 

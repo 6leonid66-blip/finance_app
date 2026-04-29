@@ -70,4 +70,10 @@ export interface FinancialAccount {
   created_at: string
 }
 
+export interface UserProfileView {
+  full_name: string | null
+  email: string | null
+  avatar_url: string | null
+}
+
 export type AppScreen = 'dashboard' | 'transactions' | 'recurring'
