@@ -790,6 +790,30 @@ function App() {
     if (household) void loadMonthlyData(household.id, selectedMonth)
   }
 
+  // After a recurring template is created/edited/toggled/deleted we must
+  // make sure the *current real-world month* gets re-synced with the latest
+  // template state, even if the user is currently browsing a past or future
+  // month. The DB function is forward-only (no-op for past months), so the
+  // current month is the one that matters for invariant "current must
+  // reflect the new value" — past months stay frozen.
+  const refreshAfterTemplateChange = () => {
+    if (!household || !supabase) return
+    const now = new Date()
+    const currentMonthFirstDay = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+    const householdId = household.id
+    void (async () => {
+      try {
+        await supabase!.rpc('ensure_auto_post_transactions_from_templates', {
+          p_household: householdId,
+          p_month: currentMonthFirstDay,
+        })
+      } catch {
+        /* the per-month RPC inside loadMonthlyData will surface any error */
+      }
+      await loadMonthlyData(householdId, selectedMonth)
+    })()
+  }
+
   const uploadProfilePhoto = async (file: File) => {
     if (!supabase || !sessionUserId) return { ok: false, message: 'אין משתמש מחובר' }
     try {
@@ -1039,7 +1063,7 @@ function App() {
               <RecurringTemplatesPanel
                 householdId={household.id}
                 selectedMonth={selectedMonth}
-                onTemplatesChanged={refreshMonth}
+                onTemplatesChanged={refreshAfterTemplateChange}
                 scopeMode={scopeMode}
                 onScopeModeChange={setScopeMode}
               />

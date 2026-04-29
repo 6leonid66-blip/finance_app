@@ -920,6 +920,33 @@
   color: #b45309;
 }
 
+.entry-badge-duplicate {
+  border-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.15);
+  color: #b45309;
+  font-weight: 600;
+}
+
+.duplicate-row {
+  border: 1px solid #f59e0b !important;
+  background: rgba(245, 158, 11, 0.06);
+  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.35);
+}
+
+tr.duplicate-row > td {
+  background: rgba(245, 158, 11, 0.06);
+  border-top: 1px solid rgba(245, 158, 11, 0.55);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.55);
+}
+
+tr.duplicate-row > td:first-child {
+  border-inline-start: 3px solid #f59e0b;
+}
+
+tr.duplicate-row > td:last-child {
+  border-inline-end: 1px solid rgba(245, 158, 11, 0.55);
+}
+
 .entry-amount {
   text-align: end;
 }

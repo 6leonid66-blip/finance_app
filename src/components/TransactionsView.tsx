@@ -134,6 +134,27 @@ export function TransactionsView({
     return allFeedItems
   }, [allFeedItems, entryFilter])
 
+  // Soft duplicate detection: highlight rows that share
+  // (type, amount, occurred_on, normalized note) with another row inside
+  // the *currently displayed* list (so it respects month + scope + type
+  // filter). Pure UI hint — never auto-merges or auto-deletes anything.
+  const duplicateIds = useMemo(() => {
+    const buckets = new Map<string, string[]>()
+    filteredEntries.forEach((entry) => {
+      const monthKey = entry.occurred_on.slice(0, 7)
+      const note = (entry.note ?? '').trim().toLowerCase()
+      const key = `${entry.type}|${entry.amount}|${entry.occurred_on}|${monthKey}|${note}`
+      const list = buckets.get(key) ?? []
+      list.push(entry.id)
+      buckets.set(key, list)
+    })
+    const ids = new Set<string>()
+    buckets.forEach((list) => {
+      if (list.length > 1) list.forEach((id) => ids.add(id))
+    })
+    return ids
+  }, [filteredEntries])
+
   const filteredTotals = useMemo(() => {
     const expenseTotal = filteredEntries
       .filter((e) => e.type === 'expense')
@@ -501,8 +522,13 @@ export function TransactionsView({
       <article className="card card-form">
         <h3 className="card-heading">תנועות החודש</h3>
         <ul className="tx-mobile-list">
-          {filteredEntries.map((entry) => (
-            <li key={`m-${entry.id}`} className="tx-mobile-item">
+          {filteredEntries.map((entry) => {
+            const isDuplicate = duplicateIds.has(entry.id)
+            return (
+            <li
+              key={`m-${entry.id}`}
+              className={`tx-mobile-item${isDuplicate ? ' duplicate-row' : ''}`}
+            >
               <div className="tx-mobile-top">
                 <strong>{entry.category}</strong>
                 <span className={entry.type === 'expense' ? 'amount-expense' : 'amount-income'}>
@@ -515,13 +541,23 @@ export function TransactionsView({
                 {entry.accountName ? <span>{entry.accountName}</span> : null}
               </div>
               {entry.note ? <p className="tx-mobile-note">{entry.note}</p> : null}
-              {entry.sourceEntry?.is_auto_from_recurring || entry.sourceEntry?.installment_progress_label ? (
+              {entry.sourceEntry?.is_auto_from_recurring ||
+              entry.sourceEntry?.installment_progress_label ||
+              isDuplicate ? (
                 <div className="entry-badges">
                   {entry.sourceEntry?.is_auto_from_recurring ? (
                     <span className="entry-badge entry-badge-fixed">קבוע-אוטומטי</span>
                   ) : null}
                   {entry.sourceEntry?.installment_progress_label ? (
                     <span className="entry-badge">{entry.sourceEntry.installment_progress_label}</span>
+                  ) : null}
+                  {isDuplicate ? (
+                    <span
+                      className="entry-badge entry-badge-duplicate"
+                      title="רשומה זו זהה לרשומה אחרת באותו חודש (סוג, סכום, תאריך והערה). בדוק אם מדובר בכפילות בטעות ומחק ידנית אם צריך."
+                    >
+                      כפילות אפשרית
+                    </span>
                   ) : null}
                 </div>
               ) : null}
@@ -538,7 +574,8 @@ export function TransactionsView({
                 ) : null}
               </div>
             </li>
-          ))}
+            )
+          })}
           {!filteredEntries.length ? <li className="empty">אין תנועות להצגה במסנן הנוכחי.</li> : null}
         </ul>
         <div className="bank-table-wrap">
@@ -556,8 +593,10 @@ export function TransactionsView({
               </tr>
             </thead>
             <tbody>
-              {filteredEntries.map((entry) => (
-                <tr key={entry.id}>
+              {filteredEntries.map((entry) => {
+                const isDuplicate = duplicateIds.has(entry.id)
+                return (
+                <tr key={entry.id} className={isDuplicate ? 'duplicate-row' : undefined}>
                   <td data-label="תאריך">{entry.occurred_on}</td>
                   <td data-label="סוג">{entry.type === 'expense' ? 'הוצאה' : 'הכנסה'}</td>
                   <td data-label="קטגוריה">{entry.category}</td>
@@ -573,8 +612,17 @@ export function TransactionsView({
                     {entry.sourceEntry?.installment_progress_label ? (
                       <span className="entry-badge">{entry.sourceEntry.installment_progress_label}</span>
                     ) : null}
+                    {isDuplicate ? (
+                      <span
+                        className="entry-badge entry-badge-duplicate"
+                        title="רשומה זו זהה לרשומה אחרת באותו חודש (סוג, סכום, תאריך והערה). בדוק אם מדובר בכפילות בטעות ומחק ידנית אם צריך."
+                      >
+                        כפילות אפשרית
+                      </span>
+                    ) : null}
                     {!entry.sourceEntry?.is_auto_from_recurring &&
-                    !entry.sourceEntry?.installment_progress_label ? (
+                    !entry.sourceEntry?.installment_progress_label &&
+                    !isDuplicate ? (
                       <span className="muted small">—</span>
                     ) : null}
                   </td>
@@ -616,7 +664,8 @@ export function TransactionsView({
                     </div>
                   </td>
                 </tr>
-              ))}
+                )
+              })}
               {!filteredEntries.length ? (
                 <tr>
                   <td colSpan={8} className="empty">

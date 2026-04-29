@@ -172,6 +172,11 @@ export function RecurringTemplatesPanel({
     }
   }
 
+  const currentRealMonthFirstDay = () => {
+    const now = new Date()
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
+  }
+
   const toggleActive = async (row: RecurringTemplate) => {
     if (!supabase) return
     await supabase.from('recurring_templates').update({ active: !row.active }).eq('id', row.id)
@@ -181,6 +186,16 @@ export function RecurringTemplatesPanel({
 
   const remove = async (id: string) => {
     if (!supabase) return
+    // Forward-only cleanup: drop current+future auto-posted rows for this
+    // template BEFORE deleting it, so past months remain frozen (the FK
+    // ON DELETE SET NULL keeps them as orphans, which is exactly what we
+    // want for history).
+    await supabase
+      .from('transactions')
+      .delete()
+      .eq('household_id', householdId)
+      .eq('auto_post_template_id', id)
+      .gte('auto_post_month', currentRealMonthFirstDay())
     await supabase.from('recurring_templates').delete().eq('id', id)
     await load()
     onTemplatesChanged()
