@@ -10,6 +10,7 @@ import type {
   RecurringTemplate,
 } from '../types'
 import { monthValueToFirstDay } from '../lib/month'
+import { inclusiveMonthSpan, installmentIndex } from '../lib/recurringProgress'
 
 type RecurringTemplatesPanelProps = {
   householdId: string
@@ -43,13 +44,6 @@ export function RecurringTemplatesPanel({
   const [editingId, setEditingId] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
 
-  const monthDiffInclusive = (startValue: string, endValue: string) => {
-    const [sy, sm] = startValue.split('-').map(Number)
-    const [ey, em] = endValue.split('-').map(Number)
-    if (!sy || !sm || !ey || !em) return 0
-    return Math.max(0, (ey - sy) * 12 + (em - sm) + 1)
-  }
-
   const addMonths = (monthValue: string, months: number) => {
     const [y, m] = monthValue.split('-').map(Number)
     if (!y || !m) return monthValue
@@ -74,19 +68,26 @@ export function RecurringTemplatesPanel({
   }
 
   const describePeriod = (row: RecurringTemplate) => {
+    const startMk = row.template_start_month?.slice(0, 7)
+    if (!startMk) return '—'
+
     if (row.end_rule === 'unlimited') return 'ללא הגבלה'
+
     if (row.end_rule === 'until_month') {
       const endMonthValue = row.end_month?.slice(0, 7)
-      return endMonthValue ? `עד ${formatMonthLabel(endMonthValue)}` : 'עד חודש שייקבע'
+      if (!endMonthValue) return 'עד חודש שייקבע'
+      const total = inclusiveMonthSpan(startMk, endMonthValue)
+      if (!total) return `עד ${formatMonthLabel(endMonthValue)}`
+      const vm = selectedMonth.slice(0, 7)
+      const idx = installmentIndex(row.template_start_month!, vm, total)
+      return `עד ${formatMonthLabel(endMonthValue)} · תשלום ${idx} מתוך ${total}`
     }
+
     const total = row.max_installments ?? 0
     if (!total) return 'תשלומים'
-    const startValue = row.template_start_month?.slice(0, 7)
-    const current =
-      startValue && selectedMonth
-        ? Math.min(Math.max(monthDiffInclusive(startValue, selectedMonth), 1), total)
-        : 1
-    return `תשלום ${current} מתוך ${total}`
+    const vm = selectedMonth.slice(0, 7)
+    const idx = installmentIndex(row.template_start_month!, vm, total)
+    return `תשלום ${idx} מתוך ${total}`
   }
 
   const load = async () => {
@@ -125,14 +126,18 @@ export function RecurringTemplatesPanel({
     }
     if (
       endRule === 'fixed_installments' &&
-      (!Number(maxInstallments || monthDiffInclusive(startMonth, endMonth)) ||
-        Number(maxInstallments || monthDiffInclusive(startMonth, endMonth)) <= 0)
+      (!Number(maxInstallments || inclusiveMonthSpan(startMonth, endMonth)) ||
+        Number(maxInstallments || inclusiveMonthSpan(startMonth, endMonth)) <= 0)
     ) {
       setError('מספר התשלומים חייב להיות לפחות 1')
       return
     }
     if (endRule !== 'unlimited' && !endMonth) {
       setError('יש לבחור חודש סיום')
+      return
+    }
+    if (endRule === 'until_month' && endMonth && startMonth && endMonth.slice(0, 7) < startMonth.slice(0, 7)) {
+      setError('חודש הסיום חייב להיות אחרי תאריך ההתחלה או מאותה נקודה')
       return
     }
     setSaving(true)
@@ -150,7 +155,7 @@ export function RecurringTemplatesPanel({
         end_month: endRule === 'unlimited' ? null : monthValueToFirstDay(endMonth),
         max_installments:
           endRule === 'fixed_installments'
-            ? Number(maxInstallments || monthDiffInclusive(startMonth, endMonth))
+            ? Number(maxInstallments || inclusiveMonthSpan(startMonth, endMonth))
             : null,
         // Every active recurring template auto-posts by definition. We always
         // write `true` from the client; the column is kept for backwards
@@ -232,7 +237,7 @@ export function RecurringTemplatesPanel({
       setEndMonth(addMonths(value, parsed - 1))
       return
     }
-    const computed = monthDiffInclusive(value, endMonth)
+    const computed = inclusiveMonthSpan(value, endMonth)
     if (computed > 0) setMaxInstallments(String(computed))
   }
 
@@ -242,6 +247,22 @@ export function RecurringTemplatesPanel({
     const amt = Number(defaultAmount || 0)
     if (mode === 'fixed_amount' && (!amt || amt <= 0)) {
       setError('יש להזין סכום חודשי חיובי')
+      return
+    }
+    if (
+      endRule === 'fixed_installments' &&
+      (!Number(maxInstallments || inclusiveMonthSpan(startMonth, endMonth)) ||
+        Number(maxInstallments || inclusiveMonthSpan(startMonth, endMonth)) <= 0)
+    ) {
+      setError('מספר התשלומים חייב להיות לפחות 1')
+      return
+    }
+    if (endRule !== 'unlimited' && !endMonth) {
+      setError('יש לבחור חודש סיום')
+      return
+    }
+    if (endRule === 'until_month' && endMonth && startMonth && endMonth.slice(0, 7) < startMonth.slice(0, 7)) {
+      setError('חודש הסיום חייב להיות אחרי תאריך ההתחלה או מאותה נקודה')
       return
     }
     setSaving(true)
@@ -260,7 +281,7 @@ export function RecurringTemplatesPanel({
           end_month: endRule === 'unlimited' ? null : monthValueToFirstDay(endMonth),
           max_installments:
             endRule === 'fixed_installments'
-              ? Number(maxInstallments || monthDiffInclusive(startMonth, endMonth))
+              ? Number(maxInstallments || inclusiveMonthSpan(startMonth, endMonth))
               : null,
           auto_post_as_actual: true,
         })
@@ -527,6 +548,9 @@ export function RecurringTemplatesPanel({
               מתחיל מחודש
               <MonthValuePicker value={startMonth} onChange={onStartMonthChange} />
             </label>
+            <p className="muted small recurring-template-hint">
+              תאריך זה מהווה את תשלום 1 מתוך הסדרה (לא משנה אם הגדרת &quot;עד חודש&quot; או &quot;מספר תשלומים&quot;).
+            </p>
             <div className="segmented">
               <button
                 type="button"
@@ -548,7 +572,7 @@ export function RecurringTemplatesPanel({
                 onClick={() => {
                   setEndRule('fixed_installments')
                   if (!maxInstallments) {
-                    const computed = monthDiffInclusive(startMonth, endMonth)
+                    const computed = inclusiveMonthSpan(startMonth, endMonth)
                     setMaxInstallments(String(computed || 1))
                   }
                 }}
@@ -588,7 +612,7 @@ export function RecurringTemplatesPanel({
                     value={endMonth}
                     onChange={(value) => {
                       setEndMonth(value)
-                      const computed = monthDiffInclusive(startMonth, value)
+                      const computed = inclusiveMonthSpan(startMonth, value)
                       if (computed > 0) setMaxInstallments(String(computed))
                     }}
                   />

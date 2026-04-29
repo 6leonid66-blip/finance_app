@@ -1153,6 +1153,10 @@ p .thinking-dots,
   background: color-mix(in srgb, var(--card) 92%, #ffffff 8%);
 }
 
+.recurring-template-hint {
+  margin: -2px 0 6px;
+}
+
 .panel-intro {
   margin: 2px 0 8px;
   color: color-mix(in srgb, var(--text) 78%, #000 22%);

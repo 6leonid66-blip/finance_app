@@ -12,10 +12,11 @@ import { ReconcileView } from './components/ReconcileView'
 import { AssistantView } from './components/AssistantView'
 import { buildCompactLedger } from './lib/assistantContext'
 import { isSupabaseConfigured, supabase } from './supabase'
-import type { AppScreen, EntryType, FinanceEntry, FinancialAccount, Household, UserProfileView } from './types'
+import type { AppScreen, EntryType, FinanceEntry, FinancialAccount, Household, RecurringEndRule, UserProfileView } from './types'
 import { getReceiptPublicUrl } from './lib/receiptStorage'
 import { uploadProfileImage } from './lib/profileStorage'
 import { analyzeSpokenExpenseWithGemini } from './lib/geminiReceipt'
+import { installmentProgressLabel } from './lib/recurringProgress'
 import { getSpeechRecognitionCtor } from './lib/speech'
 import type { SpeechRecognitionLike } from './lib/speech'
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from './constants/categories'
@@ -347,7 +348,7 @@ function App() {
             .order('created_at', { ascending: true }),
           supabase
             .from('recurring_templates')
-            .select('id,direction,category,active,template_start_month,end_rule,max_installments')
+            .select('id,direction,category,active,template_start_month,end_rule,end_month,max_installments')
             .eq('household_id', householdId)
             .eq('active', true),
           supabase
@@ -424,7 +425,8 @@ function App() {
           (recurringData ?? []) as Array<{
             id: string
             template_start_month: string
-            end_rule: string
+            end_rule: RecurringEndRule
+            end_month: string | null
             max_installments: number | null
           }>
         ).map((row) => [row.id, row]),
@@ -444,14 +446,14 @@ function App() {
             installment_progress_label: (() => {
               if (!row.auto_post_template_id) return null
               const template = recurringById.get(row.auto_post_template_id)
-              if (!template || template.end_rule !== 'fixed_installments' || !template.max_installments) return null
-              const start = new Date(`${template.template_start_month.slice(0, 7)}-01T00:00:00`)
-              const current = new Date(`${row.occurred_on.slice(0, 7)}-01T00:00:00`)
-              const monthDelta =
-                (current.getFullYear() - start.getFullYear()) * 12 + (current.getMonth() - start.getMonth())
-              const currentInstallment = Math.min(template.max_installments, Math.max(1, monthDelta + 1))
-              const remaining = Math.max(0, template.max_installments - currentInstallment)
-              return `תשלום ${currentInstallment}/${template.max_installments} · נשארו ${remaining}`
+              if (!template) return null
+              return installmentProgressLabel({
+                occurredOnMonthKey: row.occurred_on.slice(0, 7),
+                template_start_month: template.template_start_month,
+                end_rule: template.end_rule,
+                end_month: template.end_month,
+                max_installments: template.max_installments,
+              })
             })(),
           }
         }),
