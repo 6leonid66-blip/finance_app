@@ -4,14 +4,52 @@ type ReceiptAnalysis = {
   suggestedCategory?: string
 }
 
+const GEMINI_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-flash-8b']
+
 function mapGeminiError(status: number) {
   if (status === 403) {
     return 'Gemini חסום (403). בדוק שה-API key תקין, שהפעלת Gemini API ושיש הרשאות Billing.'
+  }
+  if (status === 404) {
+    return 'Gemini API error: 404. המודל לא זמין לפרויקט הזה כרגע.'
   }
   if (status === 429) {
     return 'חריגה ממכסת Gemini. נסה שוב בעוד כמה דקות.'
   }
   return `Gemini API error: ${status}`
+}
+
+async function callGeminiWithFallback(params: {
+  apiKey: string
+  body: string
+}): Promise<{
+  candidates?: Array<{
+    content?: { parts?: Array<{ text?: string }> }
+  }>
+}> {
+  let lastErrorStatus: number | null = null
+  for (const model of GEMINI_MODELS) {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${params.apiKey}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: params.body,
+      },
+    )
+    if (response.ok) {
+      return (await response.json()) as {
+        candidates?: Array<{
+          content?: { parts?: Array<{ text?: string }> }
+        }>
+      }
+    }
+    lastErrorStatus = response.status
+    if (response.status !== 404) {
+      throw new Error(mapGeminiError(response.status))
+    }
+  }
+  throw new Error(mapGeminiError(lastErrorStatus ?? 404))
 }
 
 function fileToBase64(file: File): Promise<string> {
@@ -57,43 +95,29 @@ JSON keys:
 - suggestedCategory: choose one exact value from this list: ${params.categories.join(', ')}
 If uncertain, set suggestedCategory to "אחר".`
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              { text: prompt },
-              {
-                inline_data: {
-                  mime_type: params.file.type || 'image/jpeg',
-                  data: base64,
-                },
+  const data = await callGeminiWithFallback({
+    apiKey,
+    body: JSON.stringify({
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: prompt },
+            {
+              inline_data: {
+                mime_type: params.file.type || 'image/jpeg',
+                data: base64,
               },
-            ],
-          },
-        ],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          temperature: 0.1,
+            },
+          ],
         },
-      }),
-    },
-  )
-
-  if (!response.ok) {
-    throw new Error(mapGeminiError(response.status))
-  }
-
-  const data = (await response.json()) as {
-    candidates?: Array<{
-      content?: { parts?: Array<{ text?: string }> }
-    }>
-  }
+      ],
+      generationConfig: {
+        responseMimeType: 'application/json',
+        temperature: 0.1,
+      },
+    }),
+  })
 
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text
   if (!text) throw new Error('Gemini לא החזיר תשובה תקינה')
@@ -134,29 +158,16 @@ JSON keys:
 If uncertain about category set "אחר".
 Spoken text: """${params.spokenText}"""`
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          temperature: 0.1,
-        },
-      }),
-    },
-  )
-  if (!response.ok) {
-    throw new Error(mapGeminiError(response.status))
-  }
-
-  const data = (await response.json()) as {
-    candidates?: Array<{
-      content?: { parts?: Array<{ text?: string }> }
-    }>
-  }
+  const data = await callGeminiWithFallback({
+    apiKey,
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: {
+        responseMimeType: 'application/json',
+        temperature: 0.1,
+      },
+    }),
+  })
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text
   if (!text) throw new Error('Gemini לא החזיר תשובה תקינה')
 
@@ -195,27 +206,15 @@ Data summary:
 ${params.summary}
 Return plain text only.`
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: {
-          temperature: 0.2,
-        },
-      }),
-    },
-  )
-  if (!response.ok) {
-    throw new Error(mapGeminiError(response.status))
-  }
-  const data = (await response.json()) as {
-    candidates?: Array<{
-      content?: { parts?: Array<{ text?: string }> }
-    }>
-  }
+  const data = await callGeminiWithFallback({
+    apiKey,
+    body: JSON.stringify({
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.2,
+      },
+    }),
+  })
   const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
   if (!text) throw new Error('Gemini לא החזיר המלצה')
   return text
