@@ -31,13 +31,19 @@ Copy-Item .env.example .env
 3. עדכון ערכים ב-`.env`:
 - `VITE_SUPABASE_URL`
 - `VITE_SUPABASE_ANON_KEY`
-- `VITE_GEMINI_API_KEY` (לניתוח חשבוניות מתמונה)
+- `GEMINI_API_KEY` — צד שרת בלבד, ללא תחילית `VITE_`. נטען רק על ידי הפונקציה `api/gemini.ts` ב-Vercel ולא נחשף לדפדפן. החלפת המפתח דורשת רק עדכון ב-Vercel + Redeploy אחד, בלי לבנות מחדש את ה-frontend.
 
 4. הרצת פיתוח:
 
 ```bash
+# Frontend בלבד (אבל אז קריאות /api/gemini לא יעבדו מקומית):
 npm run dev
+
+# מומלץ: פיתוח שמכיל גם את הפונקציה /api/gemini (דורש Vercel CLI):
+npx vercel dev
 ```
+
+> בפריסה ב-Vercel: הוסף את `GEMINI_API_KEY` ב-Project Settings → Environment Variables (Production + Preview) ועשה Redeploy.
 
 ## מיגרציה ל-Supabase (פרויקט חדש וריק)
 

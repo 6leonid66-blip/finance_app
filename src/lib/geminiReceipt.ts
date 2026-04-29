@@ -4,87 +4,24 @@ type ReceiptAnalysis = {
   suggestedCategory?: string
 }
 
-const GEMINI_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-flash-8b']
-
-function mapGeminiError(status: number) {
-  if (status === 403) {
-    return 'Gemini חסום (403). בדוק שה-API key תקין, שהפעלת Gemini API ושיש הרשאות Billing.'
-  }
-  if (status === 404) {
-    return 'Gemini API error: 404. המודל לא זמין לפרויקט הזה כרגע.'
-  }
-  if (status === 429) {
-    return 'חריגה ממכסת Gemini. נסה שוב בעוד כמה דקות.'
-  }
-  return `Gemini API error: ${status}`
+type ProxySuccess = {
+  ok: true
+  amount?: number
+  description?: string
+  suggestedCategory?: string
+  text?: string
 }
 
-async function toGeminiError(response: Response): Promise<Error> {
-  const status = response.status
-  let reason = ''
-  let message = ''
-  try {
-    const payload = (await response.json()) as {
-      error?: {
-        status?: string
-        message?: string
-        details?: Array<{ reason?: string }>
-      }
-    }
-    reason = payload.error?.details?.[0]?.reason ?? ''
-    message = payload.error?.message ?? ''
-    if (!reason && payload.error?.status) reason = payload.error.status
-  } catch {
-    // Ignore JSON parsing errors and fall back to generic status mapping.
-  }
-
-  if (reason === 'API_KEY_INVALID' || /key expired|invalid api key/i.test(message)) {
-    return new Error('מפתח Gemini לא תקין או פג תוקף. צור API key חדש ועדכן VITE_GEMINI_API_KEY ב-Vercel וב-.env.')
-  }
-  if (reason === 'SERVICE_DISABLED' || /api .* has not been used|not enabled/i.test(message)) {
-    return new Error('Generative Language API לא מופעל בפרויקט הזה. הפעל אותו ב-Google Cloud ואז נסה שוב.')
-  }
-  if (reason === 'BILLING_DISABLED' || /billing/i.test(message)) {
-    return new Error('Billing כבוי בפרויקט של Gemini. הפעל Billing כדי להשתמש ב-AI.')
-  }
-  if (message.trim()) {
-    return new Error(`${mapGeminiError(status)} (${message.trim()})`)
-  }
-  return new Error(mapGeminiError(status))
+type ProxyFailure = {
+  ok: false
+  status: number
+  reason: string
+  message: string
 }
 
-async function callGeminiWithFallback(params: {
-  apiKey: string
-  body: string
-}): Promise<{
-  candidates?: Array<{
-    content?: { parts?: Array<{ text?: string }> }
-  }>
-}> {
-  let lastErrorStatus: number | null = null
-  for (const model of GEMINI_MODELS) {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${params.apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: params.body,
-      },
-    )
-    if (response.ok) {
-      return (await response.json()) as {
-        candidates?: Array<{
-          content?: { parts?: Array<{ text?: string }> }
-        }>
-      }
-    }
-    lastErrorStatus = response.status
-    if (response.status !== 404) {
-      throw await toGeminiError(response)
-    }
-  }
-  throw new Error(mapGeminiError(lastErrorStatus ?? 404))
-}
+type ProxyResponse = ProxySuccess | ProxyFailure
+
+const PROXY_PATH = '/api/gemini'
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -103,75 +40,81 @@ function fileToBase64(file: File): Promise<string> {
   })
 }
 
-function normalizeAmount(raw: unknown): number | undefined {
-  if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) return raw
-  if (typeof raw !== 'string') return undefined
-  const sanitized = raw.replace(/[^\d.,-]/g, '').replace(/,/g, '')
-  const num = Number(sanitized)
-  if (!Number.isFinite(num) || num <= 0) return undefined
-  return num
+function describeProxyError(failure: ProxyFailure): Error {
+  const reason = failure.reason || ''
+  const message = failure.message || ''
+
+  if (reason === 'MISSING_KEY') {
+    return new Error('המפתח של Gemini לא מוגדר בשרת. עדכן GEMINI_API_KEY ב-Vercel ועשה Redeploy.')
+  }
+  if (reason === 'API_KEY_INVALID' || /key expired|invalid api key/i.test(message)) {
+    return new Error('מפתח Gemini לא תקין או פג תוקף. צור API key חדש ועדכן GEMINI_API_KEY ב-Vercel.')
+  }
+  if (reason === 'SERVICE_DISABLED' || /api .* has not been used|not enabled/i.test(message)) {
+    return new Error('Generative Language API לא מופעל בפרויקט הזה. הפעל אותו ב-Google Cloud ואז נסה שוב.')
+  }
+  if (reason === 'BILLING_DISABLED' || /billing/i.test(message)) {
+    return new Error('Billing כבוי בפרויקט של Gemini. הפעל Billing כדי להשתמש ב-AI.')
+  }
+  if (reason === 'BAD_JSON' || reason === 'EMPTY_TEXT') {
+    return new Error('Gemini לא החזיר תשובה תקינה. נסה שוב או מלא ידנית.')
+  }
+  if (failure.status === 403) {
+    return new Error('Gemini חסום (403). בדוק שה-API key תקין, שהפעלת Gemini API ושיש הרשאות Billing.')
+  }
+  if (failure.status === 404) {
+    return new Error('המודל לא זמין לפרויקט הזה כרגע (404).')
+  }
+  if (failure.status === 429) {
+    return new Error('חריגה ממכסת Gemini. נסה שוב בעוד כמה דקות.')
+  }
+  if (message.trim()) {
+    return new Error(`שגיאת Gemini (${failure.status}): ${message.trim()}`)
+  }
+  return new Error(`שגיאת Gemini (${failure.status})`)
+}
+
+async function callProxy(payload: Record<string, unknown>): Promise<ProxySuccess> {
+  let response: Response
+  try {
+    response = await fetch(PROXY_PATH, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+  } catch {
+    throw new Error('לא הצלחתי להתחבר לשרת ה-AI. בדוק חיבור אינטרנט.')
+  }
+
+  let parsed: ProxyResponse | null = null
+  try {
+    parsed = (await response.json()) as ProxyResponse
+  } catch {
+    // Non-JSON proxy error body; we'll surface the HTTP status below.
+  }
+
+  if (!parsed) {
+    throw new Error(`שגיאת Gemini (${response.status})`)
+  }
+  if (parsed.ok) return parsed
+  throw describeProxyError(parsed)
 }
 
 export async function analyzeReceiptWithGemini(params: {
   file: File
   categories: readonly string[]
 }): Promise<ReceiptAnalysis> {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY as string | undefined
-  if (!apiKey) {
-    throw new Error('חסר VITE_GEMINI_API_KEY בקובץ .env')
-  }
-
-  const base64 = await fileToBase64(params.file)
-  const prompt = `Analyze this Hebrew receipt/check image and return only JSON.
-JSON keys:
-- amount: number (total amount in ILS)
-- description: short Hebrew description (max 40 chars)
-- suggestedCategory: choose one exact value from this list: ${params.categories.join(', ')}
-If uncertain, set suggestedCategory to "אחר".`
-
-  const data = await callGeminiWithFallback({
-    apiKey,
-    body: JSON.stringify({
-      contents: [
-        {
-          role: 'user',
-          parts: [
-            { text: prompt },
-            {
-              inline_data: {
-                mime_type: params.file.type || 'image/jpeg',
-                data: base64,
-              },
-            },
-          ],
-        },
-      ],
-      generationConfig: {
-        responseMimeType: 'application/json',
-        temperature: 0.1,
-      },
-    }),
+  const imageBase64 = await fileToBase64(params.file)
+  const result = await callProxy({
+    kind: 'receipt',
+    categories: params.categories,
+    imageBase64,
+    mimeType: params.file.type || 'image/jpeg',
   })
-
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text
-  if (!text) throw new Error('Gemini לא החזיר תשובה תקינה')
-
-  let parsed: { amount?: unknown; description?: unknown; suggestedCategory?: unknown }
-  try {
-    parsed = JSON.parse(text)
-  } catch {
-    throw new Error('לא הצלחתי לפענח תשובת Gemini כ-JSON')
-  }
-
-  const amount = normalizeAmount(parsed.amount)
-  const description = typeof parsed.description === 'string' ? parsed.description.trim() : undefined
-  const suggestedCategory =
-    typeof parsed.suggestedCategory === 'string' ? parsed.suggestedCategory.trim() : undefined
-
   return {
-    amount,
-    description: description || undefined,
-    suggestedCategory: suggestedCategory || undefined,
+    amount: result.amount,
+    description: result.description,
+    suggestedCategory: result.suggestedCategory,
   }
 }
 
@@ -179,48 +122,15 @@ export async function analyzeSpokenExpenseWithGemini(params: {
   spokenText: string
   categories: readonly string[]
 }): Promise<ReceiptAnalysis> {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY as string | undefined
-  if (!apiKey) {
-    throw new Error('חסר VITE_GEMINI_API_KEY בקובץ .env')
-  }
-  const prompt = `You are a Hebrew expense parser.
-Convert the spoken text into strict JSON only.
-JSON keys:
-- amount: number (ILS, required if detectable)
-- description: short Hebrew description (max 40 chars)
-- suggestedCategory: one exact value from this list: ${params.categories.join(', ')}
-If uncertain about category set "אחר".
-Spoken text: """${params.spokenText}"""`
-
-  const data = await callGeminiWithFallback({
-    apiKey,
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: {
-        responseMimeType: 'application/json',
-        temperature: 0.1,
-      },
-    }),
+  const result = await callProxy({
+    kind: 'voice',
+    categories: params.categories,
+    spokenText: params.spokenText,
   })
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text
-  if (!text) throw new Error('Gemini לא החזיר תשובה תקינה')
-
-  let parsed: { amount?: unknown; description?: unknown; suggestedCategory?: unknown }
-  try {
-    parsed = JSON.parse(text)
-  } catch {
-    throw new Error('לא הצלחתי לפענח תשובת Gemini כ-JSON')
-  }
-
-  const amount = normalizeAmount(parsed.amount)
-  const description = typeof parsed.description === 'string' ? parsed.description.trim() : undefined
-  const suggestedCategory =
-    typeof parsed.suggestedCategory === 'string' ? parsed.suggestedCategory.trim() : undefined
-
   return {
-    amount,
-    description: description || undefined,
-    suggestedCategory: suggestedCategory || undefined,
+    amount: result.amount,
+    description: result.description,
+    suggestedCategory: result.suggestedCategory,
   }
 }
 
@@ -228,29 +138,11 @@ export async function generateHouseholdAdviceWithGemini(params: {
   month: string
   summary: string
 }): Promise<string> {
-  const apiKey = import.meta.env.VITE_GEMINI_API_KEY as string | undefined
-  if (!apiKey) {
-    throw new Error('חסר VITE_GEMINI_API_KEY בקובץ .env')
-  }
-  const prompt = `You are a household finance advisor for an Israeli family.
-Write your response in Hebrew.
-Keep it practical and short (4 bullet points max).
-Data month: ${params.month}
-Data summary:
-${params.summary}
-Return plain text only.`
-
-  const data = await callGeminiWithFallback({
-    apiKey,
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: {
-        temperature: 0.2,
-      },
-    }),
+  const result = await callProxy({
+    kind: 'advice',
+    month: params.month,
+    summary: params.summary,
   })
-  const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim()
-  if (!text) throw new Error('Gemini לא החזיר המלצה')
-  return text
+  if (!result.text) throw new Error('Gemini לא החזיר המלצה')
+  return result.text
 }
-
