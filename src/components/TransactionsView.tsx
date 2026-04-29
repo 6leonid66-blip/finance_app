@@ -93,26 +93,34 @@ export function TransactionsView({
   const sortedEntries = useMemo(
     () =>
       [...entries].sort((a, b) => {
-        if (a.occurred_on === b.occurred_on) return b.created_at.localeCompare(a.created_at)
-        return b.occurred_on.localeCompare(a.occurred_on)
+        const catCmp = a.category.localeCompare(b.category, 'he')
+        if (catCmp !== 0) return catCmp
+        if (a.created_at && b.created_at && a.created_at !== b.created_at) {
+          return b.created_at.localeCompare(a.created_at)
+        }
+        if (a.occurred_on !== b.occurred_on) {
+          return b.occurred_on.localeCompare(a.occurred_on)
+        }
+        return b.id.localeCompare(a.id)
       }),
     [entries],
   )
 
-  const allFeedItems = useMemo<FeedItem[]>(() => {
-    const actualItems: FeedItem[] = sortedEntries.map((entry) => ({
-      id: `tx-${entry.id}`,
-      type: entry.type,
-      amount: entry.amount,
-      category: entry.category,
-      note: entry.note,
-      occurred_on: entry.occurred_on,
-      sourceEntry: entry,
-      accountName: entry.account_name ?? null,
-      ownerName: ownerLabel(entry),
-    }))
-    return actualItems.sort((a, b) => b.occurred_on.localeCompare(a.occurred_on))
-  }, [sortedEntries])
+  const allFeedItems = useMemo<FeedItem[]>(
+    () =>
+      sortedEntries.map((entry) => ({
+        id: `tx-${entry.id}`,
+        type: entry.type,
+        amount: entry.amount,
+        category: entry.category,
+        note: entry.note,
+        occurred_on: entry.occurred_on,
+        sourceEntry: entry,
+        accountName: entry.account_name ?? null,
+        ownerName: ownerLabel(entry),
+      })),
+    [sortedEntries],
+  )
 
   const formatShortDate = (dateValue: string) => {
     const d = new Date(`${dateValue}T00:00:00`)
