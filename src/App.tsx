@@ -4,11 +4,10 @@ import './App.css'
 import { AddExpenseSheet } from './components/AddExpenseSheet'
 import { BottomNav } from './components/BottomNav'
 import { Dashboard } from './components/Dashboard'
-import { PlanningView } from './components/PlanningView'
 import { RecurringTemplatesPanel } from './components/RecurringTemplatesPanel'
 import { TransactionsView } from './components/TransactionsView'
 import { isSupabaseConfigured, supabase } from './supabase'
-import type { AppScreen, FinanceEntry, FinancialAccount, Household, MonthlyPlan } from './types'
+import type { AppScreen, FinanceEntry, FinancialAccount, Household } from './types'
 import { monthValueToRange } from './lib/month'
 import { getReceiptPublicUrl } from './lib/receiptStorage'
 
@@ -36,9 +35,15 @@ function App() {
   const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7))
   const [loadingData, setLoadingData] = useState(false)
   const [entries, setEntries] = useState<FinanceEntry[]>([])
-  const [plans, setPlans] = useState<MonthlyPlan[]>([])
   const [historyEntries, setHistoryEntries] = useState<
-    Array<{ type: 'income' | 'expense'; amount: number; occurred_on: string; planned: boolean }>
+    Array<{
+      type: 'income' | 'expense'
+      amount: number
+      occurred_on: string
+      planned: boolean
+      account_id: string | null
+      owner_id: string
+    }>
   >([])
   const [accounts, setAccounts] = useState<FinancialAccount[]>([])
   const [selectedAccountId, setSelectedAccountId] = useState<string>('')
@@ -65,11 +70,12 @@ function App() {
     () => new Set(scopedEntries.filter((entry) => !entry.planned).map((entry) => entry.category)),
     [scopedEntries],
   )
-  const scopedPlans = useMemo(() => {
-    if (!plans.length) return plans
-    if (personalCategories.size === 0) return plans
-    return plans.filter((plan) => personalCategories.has(plan.category))
-  }, [personalCategories, plans])
+  const scopedHistoryEntries = useMemo(() => {
+    const ids = scopeMode === 'shared' ? sharedAccountIds : personalAccountIds
+    if (!ids.length) return historyEntries
+    const idSet = new Set(ids)
+    return historyEntries.filter((entry) => (entry.account_id ? idSet.has(entry.account_id) : scopeMode !== 'shared'))
+  }, [historyEntries, personalAccountIds, scopeMode, sharedAccountIds])
   const actualIncome = useMemo(
     () => scopedEntries.filter((e) => e.type === 'income' && !e.planned).reduce((s, e) => s + e.amount, 0),
     [scopedEntries],
@@ -78,8 +84,38 @@ function App() {
     () => scopedEntries.filter((e) => e.type === 'expense' && !e.planned).reduce((s, e) => s + e.amount, 0),
     [scopedEntries],
   )
-  const plannedIncome = useMemo(() => scopedPlans.reduce((s, p) => s + p.planned_income, 0), [scopedPlans])
-  const plannedExpense = useMemo(() => scopedPlans.reduce((s, p) => s + p.planned_expense, 0), [scopedPlans])
+  const { plannedIncome, plannedExpense } = useMemo(() => {
+    const toMonthIndex = (monthValue: string) => {
+      const [y, m] = monthValue.split('-').map(Number)
+      return y * 12 + (m - 1)
+    }
+    const selectedMonthIndex = toMonthIndex(selectedMonth)
+    const completedMonths = new Map<string, { income: number; expense: number }>()
+    scopedHistoryEntries.forEach((entry) => {
+      if (entry.planned) return
+      const key = entry.occurred_on.slice(0, 7)
+      if (toMonthIndex(key) >= selectedMonthIndex) return
+      const row = completedMonths.get(key) ?? { income: 0, expense: 0 }
+      if (entry.type === 'income') row.income += entry.amount
+      if (entry.type === 'expense') row.expense += entry.amount
+      completedMonths.set(key, row)
+    })
+    const monthRows = Array.from(completedMonths.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([, totals]) => totals)
+
+    const avgOf = (list: number[]) => (list.length ? list.reduce((sum, v) => sum + v, 0) / list.length : 0)
+    const recent = monthRows.slice(-3)
+    const previous = monthRows.at(-1) ?? { income: 0, expense: 0 }
+    const avgIncome3 = avgOf(recent.map((row) => row.income))
+    const avgExpense3 = avgOf(recent.map((row) => row.expense))
+    const forecastIncome = previous.income > 0 ? previous.income * 0.6 + avgIncome3 * 0.4 : avgIncome3
+    const forecastExpense = previous.expense > 0 ? previous.expense * 0.6 + avgExpense3 * 0.4 : avgExpense3
+    return {
+      plannedIncome: Math.max(0, Math.round(forecastIncome)),
+      plannedExpense: Math.max(0, Math.round(forecastExpense)),
+    }
+  }, [scopedHistoryEntries, selectedMonth])
 
   const describeError = (error: unknown) => {
     if (error instanceof Error) return error.message
@@ -211,17 +247,6 @@ function App() {
     }
 
     try {
-      const { error: rpcError } = await supabase.rpc('ensure_month_plans_from_templates', {
-        p_household: householdId,
-        p_month: monthDate,
-      })
-      if (rpcError) {
-        if (rpcError.message?.includes('function') || rpcError.code === '42883') {
-          setStatusMessage('הרץ את מיגרציית recurring ב-Supabase (ensure_month_plans_from_templates).')
-        } else {
-          throw rpcError
-        }
-      }
       const { error: autoPostError } = await supabase.rpc('ensure_auto_post_transactions_from_templates', {
         p_household: householdId,
         p_month: monthDate,
@@ -271,40 +296,28 @@ function App() {
         txError = txFallback.error
       }
 
-      const [
-        { data: planData, error: planError },
-        { data: accountData, error: accountError },
-        { data: recurringData, error: recurringError },
-        { data: historyData, error: historyError },
-      ] =
+      const [{ data: accountData, error: accountError }, { data: recurringData, error: recurringError }, { data: historyData, error: historyError }] =
         await Promise.all([
           supabase
-          .from('monthly_plans')
-          .select('id,category,planned_income,planned_expense')
-          .eq('household_id', householdId)
-          .eq('month_date', monthDate)
-          .order('category', { ascending: true }),
+            .from('financial_accounts')
+            .select('id,household_id,owner_user_id,name,is_shared,active,created_at')
+            .eq('household_id', householdId)
+            .eq('active', true)
+            .order('created_at', { ascending: true }),
           supabase
-          .from('financial_accounts')
-          .select('id,household_id,owner_user_id,name,is_shared,active,created_at')
-          .eq('household_id', householdId)
-          .eq('active', true)
-          .order('created_at', { ascending: true }),
-          supabase
-          .from('recurring_templates')
-          .select('id,direction,category,active,template_start_month,end_rule,max_installments')
-          .eq('household_id', householdId)
-          .eq('active', true),
+            .from('recurring_templates')
+            .select('id,direction,category,active,template_start_month,end_rule,max_installments')
+            .eq('household_id', householdId)
+            .eq('active', true),
           supabase
             .from('transactions')
-            .select('type,amount,occurred_on,planned')
+            .select('type,amount,occurred_on,planned,account_id,owner_id')
             .eq('household_id', householdId)
             .gte('occurred_on', historyStart)
             .lte('occurred_on', historyEnd.toISOString().slice(0, 10))
             .order('occurred_on', { ascending: true }),
         ])
       if (txError) throw txError
-      if (planError) throw planError
       if (accountError) throw accountError
       if (recurringError) throw recurringError
       if (historyError) throw historyError
@@ -392,22 +405,22 @@ function App() {
           }
         }),
       )
-      setPlans(
-        (planData ?? []).map((p) => ({
-          ...(p as MonthlyPlan),
-          planned_income: Number((p as { planned_income: unknown }).planned_income),
-          planned_expense: Number((p as { planned_expense: unknown }).planned_expense),
-        })),
-      )
       setHistoryEntries(
-        ((historyData ?? []) as Array<{ type: 'income' | 'expense'; amount: unknown; occurred_on: string; planned: boolean }>).map(
-          (row) => ({
-            type: row.type,
-            amount: Number(row.amount),
-            occurred_on: row.occurred_on,
-            planned: row.planned,
-          }),
-        ),
+        ((historyData ?? []) as Array<{
+          type: 'income' | 'expense'
+          amount: unknown
+          occurred_on: string
+          planned: boolean
+          account_id: string | null
+          owner_id: string
+        }>).map((row) => ({
+          type: row.type,
+          amount: Number(row.amount),
+          occurred_on: row.occurred_on,
+          planned: row.planned,
+          account_id: row.account_id ?? null,
+          owner_id: row.owner_id,
+        })),
       )
     } catch (error) {
       setStatusMessage(`שגיאה בטעינת החודש: ${describeError(error)}`)
@@ -437,7 +450,6 @@ function App() {
       if (!userId) {
         setHousehold(null)
         setEntries([])
-        setPlans([])
         setHistoryEntries([])
         setAccounts([])
         setSelectedAccountId('')
@@ -719,7 +731,7 @@ function App() {
                 plannedIncome={plannedIncome}
                 plannedExpense={plannedExpense}
                 entries={scopedEntries}
-                historyEntries={historyEntries}
+                historyEntries={scopedHistoryEntries}
                 accounts={accounts}
                 selectedAccountId={selectedAccountId}
                 onSelectAccount={setSelectedAccountId}
@@ -742,18 +754,6 @@ function App() {
                 accounts={accounts}
                 selectedAccountId={selectedAccountId}
                 onSelectedAccountIdChange={setSelectedAccountId}
-                loading={loadingData}
-                onRefresh={refreshMonth}
-                scopeMode={scopeMode}
-                onScopeModeChange={setScopeMode}
-              />
-            ) : null}
-
-            {screen === 'planning' ? (
-              <PlanningView
-                plans={scopedPlans}
-                householdId={household.id}
-                selectedMonth={selectedMonth}
                 loading={loadingData}
                 onRefresh={refreshMonth}
                 scopeMode={scopeMode}

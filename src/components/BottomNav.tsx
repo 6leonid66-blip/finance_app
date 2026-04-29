@@ -8,7 +8,6 @@ type BottomNavProps = {
 const items: { id: AppScreen; label: string }[] = [
   { id: 'dashboard', label: 'דשבורד' },
   { id: 'transactions', label: 'תנועות' },
-  { id: 'planning', label: 'תכנון' },
   { id: 'recurring', label: 'קבועים' },
 ]
 

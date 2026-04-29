@@ -3,8 +3,30 @@ import type { FormEvent } from 'react'
 import { supabase } from '../supabase'
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, isOtherCategory } from '../constants/categories'
 import type { EntryType, FinancialAccount } from '../types'
-import { analyzeReceiptWithGemini } from '../lib/geminiReceipt'
+import { analyzeReceiptWithGemini, analyzeSpokenExpenseWithGemini } from '../lib/geminiReceipt'
 import { uploadReceiptAttachment } from '../lib/receiptStorage'
+
+type SpeechRecognitionResult = {
+  readonly isFinal: boolean
+  readonly 0: { readonly transcript: string }
+}
+
+type SpeechRecognitionEvent = Event & {
+  readonly results: ArrayLike<SpeechRecognitionResult>
+}
+
+type SpeechRecognitionLike = {
+  lang: string
+  interimResults: boolean
+  maxAlternatives: number
+  onresult: ((event: SpeechRecognitionEvent) => void) | null
+  onerror: ((event: Event) => void) | null
+  onend: (() => void) | null
+  start: () => void
+  stop: () => void
+}
+
+type SpeechRecognitionCtor = new () => SpeechRecognitionLike
 
 type AddExpenseSheetProps = {
   open: boolean
@@ -39,6 +61,7 @@ export function AddExpenseSheet({
   const [receiptFile, setReceiptFile] = useState<File | null>(null)
   const [receiptPreview, setReceiptPreview] = useState<string | null>(null)
   const [analyzing, setAnalyzing] = useState(false)
+  const [recordingVoice, setRecordingVoice] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -50,6 +73,7 @@ export function AddExpenseSheet({
     setType(initialType)
     setCategory(initialType === 'expense' ? EXPENSE_CATEGORIES[0] : INCOME_CATEGORIES[0])
     setCustomCategory('')
+    setRecordingVoice(false)
     setReceiptFile(null)
     setReceiptPreview(null)
     setError(null)
@@ -127,10 +151,29 @@ export function AddExpenseSheet({
     setReceiptFile(file)
     setReceiptPreview(URL.createObjectURL(file))
     setError(null)
+    void analyzeReceipt(file)
   }
 
-  const analyzeReceipt = async () => {
-    if (!receiptFile) {
+  const applyGeminiResult = (result: { amount?: number; description?: string; suggestedCategory?: string }) => {
+    if (result.amount) {
+      setAmount(Number.isInteger(result.amount) ? String(result.amount) : result.amount.toFixed(2))
+    }
+    if (result.description) {
+      setNote((prev) => (prev.trim() ? prev : result.description ?? ''))
+    }
+    if (result.suggestedCategory) {
+      if ((categories as readonly string[]).includes(result.suggestedCategory)) {
+        setCategory(result.suggestedCategory)
+      } else {
+        setCategory('אחר')
+        setCustomCategory(result.suggestedCategory)
+      }
+    }
+  }
+
+  const analyzeReceipt = async (fileArg?: File) => {
+    const image = fileArg ?? receiptFile
+    if (!image) {
       setError('בחר תמונה לפני ניתוח')
       return
     }
@@ -139,29 +182,49 @@ export function AddExpenseSheet({
     setError(null)
     try {
       const result = await analyzeReceiptWithGemini({
-        file: receiptFile,
+        file: image,
         categories,
       })
-
-      if (result.amount) {
-        setAmount(Number.isInteger(result.amount) ? String(result.amount) : result.amount.toFixed(2))
-      }
-      if (result.description) {
-        setNote((prev) => (prev.trim() ? prev : result.description ?? ''))
-      }
-      if (result.suggestedCategory) {
-        if ((categories as readonly string[]).includes(result.suggestedCategory)) {
-          setCategory(result.suggestedCategory)
-        } else {
-          setCategory('אחר')
-          setCustomCategory(result.suggestedCategory)
-        }
-      }
+      applyGeminiResult(result)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'ניתוח תמונה נכשל')
     } finally {
       setAnalyzing(false)
     }
+  }
+
+  const startVoiceCapture = () => {
+    if (type !== 'expense') return
+    const w = window as Window & {
+      webkitSpeechRecognition?: SpeechRecognitionCtor
+      SpeechRecognition?: SpeechRecognitionCtor
+    }
+    const Ctor = w.SpeechRecognition ?? w.webkitSpeechRecognition
+    if (!Ctor) {
+      setError('דפדפן זה לא תומך בהקלטה קולית')
+      return
+    }
+    const recognition = new Ctor()
+    recognition.lang = 'he-IL'
+    recognition.interimResults = false
+    recognition.maxAlternatives = 1
+    setRecordingVoice(true)
+    setError(null)
+    recognition.onresult = (event) => {
+      const transcript = event.results?.[0]?.[0]?.transcript?.trim()
+      if (!transcript) return
+      setNote((prev) => (prev.trim() ? prev : transcript))
+      void analyzeSpokenExpenseWithGemini({ spokenText: transcript, categories: EXPENSE_CATEGORIES })
+        .then((parsed) => applyGeminiResult(parsed))
+        .catch((err) => setError(err instanceof Error ? err.message : 'פענוח קול נכשל'))
+    }
+    recognition.onerror = () => {
+      setError('הקלטה קולית נכשלה. נסה שוב.')
+    }
+    recognition.onend = () => {
+      setRecordingVoice(false)
+    }
+    recognition.start()
   }
 
   return (
@@ -221,6 +284,15 @@ export function AddExpenseSheet({
           {type === 'expense' ? (
             <section className="receipt-box">
               <h3 className="receipt-title">צילום / העלאת חשבונית</h3>
+              <button
+                type="button"
+                className={recordingVoice ? 'btn-danger voice-btn pulse' : 'btn-danger voice-btn'}
+                onClick={startVoiceCapture}
+                disabled={recordingVoice}
+              >
+                {recordingVoice ? 'מקליט עכשיו… דבר חופשי' : '🎙️ הוצאה קולית מהירה'}
+              </button>
+              <p className="muted small">הקלטה ממלאת אוטומטית סכום, קטגוריה ותיאור. נשאר רק לאשר.</p>
               <label className="receipt-upload">
                 <input
                   type="file"
@@ -239,8 +311,9 @@ export function AddExpenseSheet({
                 disabled={!receiptFile || analyzing}
                 onClick={() => void analyzeReceipt()}
               >
-                {analyzing ? 'מנתח עם Gemini…' : 'ניתוח אוטומטי ומילוי שדות'}
+                {analyzing ? 'מנתח עם Gemini…' : 'ניתוח חוזר ידני'}
               </button>
+              <p className="muted small">בעת צילום/העלאה מתבצע ניתוח אוטומטי. רק אשר ושמור.</p>
             </section>
           ) : null}
 

@@ -70,4 +70,4 @@ export interface FinancialAccount {
   created_at: string
 }
 
-export type AppScreen = 'dashboard' | 'transactions' | 'planning' | 'recurring'
+export type AppScreen = 'dashboard' | 'transactions' | 'recurring'

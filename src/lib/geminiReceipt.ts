@@ -107,3 +107,65 @@ If uncertain, set suggestedCategory to "אחר".`
   }
 }
 
+export async function analyzeSpokenExpenseWithGemini(params: {
+  spokenText: string
+  categories: readonly string[]
+}): Promise<ReceiptAnalysis> {
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY as string | undefined
+  if (!apiKey) {
+    throw new Error('חסר VITE_GEMINI_API_KEY בקובץ .env')
+  }
+  const prompt = `You are a Hebrew expense parser.
+Convert the spoken text into strict JSON only.
+JSON keys:
+- amount: number (ILS, required if detectable)
+- description: short Hebrew description (max 40 chars)
+- suggestedCategory: one exact value from this list: ${params.categories.join(', ')}
+If uncertain about category set "אחר".
+Spoken text: """${params.spokenText}"""`
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.1,
+        },
+      }),
+    },
+  )
+  if (!response.ok) {
+    throw new Error(`Gemini API error: ${response.status}`)
+  }
+
+  const data = (await response.json()) as {
+    candidates?: Array<{
+      content?: { parts?: Array<{ text?: string }> }
+    }>
+  }
+  const text = data.candidates?.[0]?.content?.parts?.[0]?.text
+  if (!text) throw new Error('Gemini לא החזיר תשובה תקינה')
+
+  let parsed: { amount?: unknown; description?: unknown; suggestedCategory?: unknown }
+  try {
+    parsed = JSON.parse(text)
+  } catch {
+    throw new Error('לא הצלחתי לפענח תשובת Gemini כ-JSON')
+  }
+
+  const amount = normalizeAmount(parsed.amount)
+  const description = typeof parsed.description === 'string' ? parsed.description.trim() : undefined
+  const suggestedCategory =
+    typeof parsed.suggestedCategory === 'string' ? parsed.suggestedCategory.trim() : undefined
+
+  return {
+    amount,
+    description: description || undefined,
+    suggestedCategory: suggestedCategory || undefined,
+  }
+}
+

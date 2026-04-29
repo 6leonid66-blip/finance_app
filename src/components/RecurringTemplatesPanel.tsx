@@ -257,7 +257,7 @@ export function RecurringTemplatesPanel({
   return (
     <div className="screen-pad">
       <h2 className="screen-title">הוצאות והכנסות קבועות</h2>
-      <p className="panel-intro">ניהול קבועים מלא עם כללי תוקף, תשלומים וסנכרון אוטומטי לתכנון.</p>
+      <p className="panel-intro">ניהול קבועים מלא עם כללי תוקף, תשלומים וסנכרון אוטומטי לתחזית החכמה.</p>
       <p className="muted small">חודש נוכחי לבדיקה: {selectedMonth}</p>
       <div className="scope-switch card">
         <strong>תצוגה</strong>

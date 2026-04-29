@@ -190,15 +190,17 @@ export function TransactionsView({
     if (receiptPreview) URL.revokeObjectURL(receiptPreview)
     setReceiptFile(file)
     setReceiptPreview(URL.createObjectURL(file))
+    void analyzeAddReceipt(file)
   }
 
-  const analyzeAddReceipt = async () => {
-    if (!receiptFile) return
+  const analyzeAddReceipt = async (fileArg?: File) => {
+    const image = fileArg ?? receiptFile
+    if (!image) return
     setAnalyzing(true)
     setStatus(null)
     try {
       const result = await analyzeReceiptWithGemini({
-        file: receiptFile,
+        file: image,
         categories,
       })
       if (result.amount) setAmount(String(result.amount))
@@ -247,15 +249,17 @@ export function TransactionsView({
     setEditReceiptFile(file)
     setEditReceiptPreview(URL.createObjectURL(file))
     setRemoveExistingReceipt(false)
+    void analyzeEditReceipt(file)
   }
 
-  const analyzeEditReceipt = async () => {
-    if (!editReceiptFile) return
+  const analyzeEditReceipt = async (fileArg?: File) => {
+    const image = fileArg ?? editReceiptFile
+    if (!image) return
     setEditAnalyzing(true)
     setEditStatus(null)
     try {
       const result = await analyzeReceiptWithGemini({
-        file: editReceiptFile,
+        file: image,
         categories: editCategories,
       })
       if (result.amount) setEditAmount(String(result.amount))

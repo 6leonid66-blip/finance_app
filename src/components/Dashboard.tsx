@@ -51,19 +51,19 @@ export function Dashboard({
   scopeMode,
   onScopeModeChange,
 }: DashboardProps) {
-  const defaultDismissed =
-    typeof window !== 'undefined' ? localStorage.getItem('pwa-install-dismissed') === '1' : false
   const defaultIosHint =
-    !defaultDismissed &&
     typeof window !== 'undefined' &&
     /iphone|ipad|ipod/i.test(navigator.userAgent) &&
     !window.matchMedia('(display-mode: standalone)').matches
+  const isStandaloneDefault =
+    typeof window !== 'undefined' &&
+    (window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as Navigator & { standalone?: boolean }).standalone === true)
   const [deferredPrompt, setDeferredPrompt] = useState<InstallPromptEvent | null>(null)
-  const [showInstallHint, setShowInstallHint] = useState(defaultIosHint)
+  const [isStandalone, setIsStandalone] = useState(isStandaloneDefault)
   const [installHintText, setInstallHintText] = useState(
     defaultIosHint ? 'iPhone: Share → Add to Home Screen כדי להתקין.' : '',
   )
-  const [installDismissed, setInstallDismissed] = useState(defaultDismissed)
   const [joinCode, setJoinCode] = useState('')
   const [joinLoading, setJoinLoading] = useState(false)
   const [joinMessage, setJoinMessage] = useState<string | null>(null)
@@ -72,15 +72,11 @@ export function Dashboard({
   useEffect(() => {
     const onBeforeInstall = (event: Event) => {
       event.preventDefault()
-      if (!installDismissed) {
-        setDeferredPrompt(event as InstallPromptEvent)
-        setShowInstallHint(true)
-      }
+      setDeferredPrompt(event as InstallPromptEvent)
     }
     const onInstalled = () => {
-      localStorage.setItem('pwa-install-dismissed', '1')
       setDeferredPrompt(null)
-      setShowInstallHint(false)
+      setIsStandalone(true)
       setInstallHintText('האפליקציה הותקנה בהצלחה.')
     }
 
@@ -90,7 +86,7 @@ export function Dashboard({
       window.removeEventListener('beforeinstallprompt', onBeforeInstall)
       window.removeEventListener('appinstalled', onInstalled)
     }
-  }, [installDismissed])
+  }, [])
 
   const handleInstall = async () => {
     if (!deferredPrompt) return
@@ -100,12 +96,6 @@ export function Dashboard({
       setInstallHintText('האפליקציה תותקן כעת.')
     }
     setDeferredPrompt(null)
-  }
-
-  const dismissInstall = () => {
-    localStorage.setItem('pwa-install-dismissed', '1')
-    setInstallDismissed(true)
-    setShowInstallHint(false)
   }
 
   const copyHouseholdCode = async () => {
@@ -134,6 +124,20 @@ export function Dashboard({
   const balancePlanned = plannedIncome - plannedExpense
   const incomePct = pct(actualIncome, plannedIncome)
   const expensePct = pct(actualExpense, plannedExpense)
+  const forecastSummary = useMemo(() => {
+    const [year, month] = selectedMonth.split('-').map(Number)
+    const prevDate = new Date(year, month - 2, 1)
+    const prevKey = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`
+    const prevRows = historyEntries.filter((entry) => !entry.planned && entry.occurred_on.startsWith(prevKey))
+    const prevIncome = prevRows.filter((e) => e.type === 'income').reduce((sum, e) => sum + e.amount, 0)
+    const prevExpense = prevRows.filter((e) => e.type === 'expense').reduce((sum, e) => sum + e.amount, 0)
+    return {
+      prevIncome,
+      prevExpense,
+      incomeDelta: plannedIncome - prevIncome,
+      expenseDelta: plannedExpense - prevExpense,
+    }
+  }, [historyEntries, plannedExpense, plannedIncome, selectedMonth])
   const accountSummaries = useMemo(
     () =>
       accounts.map((account) => {
@@ -265,7 +269,7 @@ export function Dashboard({
       <div className="dashboard-top">
         <div>
           <h1 className="dashboard-title">הבית שלנו</h1>
-          <p className="dashboard-sub">סיכום חודשי — מתוכנן מול בפועל</p>
+          <p className="dashboard-sub">סיכום חודשי — תחזית חכמה מול בפועל</p>
         </div>
         <div className="row-actions">
           <button type="button" className="btn-secondary btn-xs" onClick={() => setShowHouseholdTools(true)}>
@@ -301,24 +305,32 @@ export function Dashboard({
         </div>
       </div>
 
-      {showInstallHint && !installDismissed ? (
-        <section className="install-cta card">
-          <div>
-            <strong>התקן אפליקציה</strong>
-            <p className="muted">{installHintText || 'התקנה מהירה למסך הבית באנדרואיד / אייפון.'}</p>
-          </div>
-          <div className="row-actions">
-            {deferredPrompt ? (
-              <button type="button" className="btn-primary btn-xs" onClick={() => void handleInstall()}>
-                התקן אפליקציה
-              </button>
-            ) : null}
-            <button type="button" className="btn-secondary btn-xs" onClick={dismissInstall}>
-              לא עכשיו
-            </button>
-          </div>
-        </section>
-      ) : null}
+      <section className="install-cta card">
+        <div>
+          <strong>התקן אפליקציה לטלפון</strong>
+          <p className="muted">
+            {isStandalone
+              ? 'האפליקציה כבר מותקנת במכשיר זה.'
+              : installHintText || 'התקנה מהירה למסך הבית באנדרואיד / אייפון.'}
+          </p>
+          {!deferredPrompt && !isStandalone ? (
+            <p className="muted small">אם אין חלון התקנה: Android/Chrome → תפריט ⋮ → Install app.</p>
+          ) : null}
+          {defaultIosHint && !isStandalone ? (
+            <p className="muted small">iPhone/Safari → Share → Add to Home Screen.</p>
+          ) : null}
+        </div>
+        <div className="row-actions">
+          <button
+            type="button"
+            className="btn-primary btn-xs"
+            onClick={() => void handleInstall()}
+            disabled={!deferredPrompt || isStandalone}
+          >
+            {isStandalone ? 'מותקן' : 'הורד אפליקציה'}
+          </button>
+        </div>
+      </section>
 
       {loading ? <p className="muted">טוען נתונים…</p> : null}
 
@@ -326,7 +338,7 @@ export function Dashboard({
         <article className="kpi-card kpi-income">
           <span className="kpi-label">הכנסות בפועל (תנועות אמיתיות)</span>
           <strong className="kpi-value">{actualIncome.toLocaleString()} ₪</strong>
-          <span className="kpi-meta">מתוכנן: {plannedIncome.toLocaleString()} ₪</span>
+          <span className="kpi-meta">תחזית חכמה: {plannedIncome.toLocaleString()} ₪</span>
           <div className="progress-track" aria-hidden>
             <div
               className="progress-fill progress-income"
@@ -334,14 +346,14 @@ export function Dashboard({
             />
           </div>
           <small className="kpi-foot">
-            {plannedIncome <= 0 ? 'אין תכנון הכנסה' : `${incomePct}% מהתכנון`}
+            {plannedIncome <= 0 ? 'אין מספיק נתונים לתחזית הכנסה' : `${incomePct}% מהתחזית`}
           </small>
         </article>
 
         <article className="kpi-card kpi-expense">
           <span className="kpi-label">הוצאות בפועל (תנועות אמיתיות)</span>
           <strong className="kpi-value">{actualExpense.toLocaleString()} ₪</strong>
-          <span className="kpi-meta">מתוכנן: {plannedExpense.toLocaleString()} ₪</span>
+          <span className="kpi-meta">תחזית חכמה: {plannedExpense.toLocaleString()} ₪</span>
           <div className="progress-track" aria-hidden>
             <div
               className="progress-fill progress-expense"
@@ -349,7 +361,7 @@ export function Dashboard({
             />
           </div>
           <small className="kpi-foot">
-            {plannedExpense <= 0 ? 'אין תכנון הוצאות' : `${expensePct}% מהתכנון`}
+            {plannedExpense <= 0 ? 'אין מספיק נתונים לתחזית הוצאות' : `${expensePct}% מהתחזית`}
           </small>
         </article>
       </div>
@@ -360,10 +372,26 @@ export function Dashboard({
           <strong>{balanceActual.toLocaleString()} ₪</strong>
         </div>
         <div className="balance-card balance-muted">
-          <span>יתרה מתוכננת</span>
+          <span>יתרת תחזית חכמה</span>
           <strong>{balancePlanned.toLocaleString()} ₪</strong>
         </div>
       </div>
+      <section className="card">
+        <h2 className="card-heading">תכנון חכם אוטומטי</h2>
+        <div className="insights-list">
+          <p className="muted">
+            תחזית הכנסה לחודש: {plannedIncome.toLocaleString()} ₪ ({forecastSummary.incomeDelta >= 0 ? '+' : ''}
+            {forecastSummary.incomeDelta.toLocaleString()} מול חודש קודם)
+          </p>
+          <p className="muted">
+            תחזית הוצאה לחודש: {plannedExpense.toLocaleString()} ₪ ({forecastSummary.expenseDelta >= 0 ? '+' : ''}
+            {forecastSummary.expenseDelta.toLocaleString()} מול חודש קודם)
+          </p>
+          <p className="muted">
+            בסיס התחזית: הרגלי החודשים האחרונים + החודש הקודם, בלי הזנה ידנית של תכנון.
+          </p>
+        </div>
+      </section>
       <section className="card expense-distribution">
         <h2 className="card-heading">חלוקת הוצאות לפי קטגוריה</h2>
         <div className="expense-pie-wrap">
@@ -463,7 +491,7 @@ export function Dashboard({
               </div>
               <small>הכנסות: {account.income.toLocaleString()} ₪</small>
               <small>הוצאות: {account.expense.toLocaleString()} ₪</small>
-              <small>תכנון בית כולל קבועים: {(plannedIncome - plannedExpense).toLocaleString()} ₪</small>
+              <small>תחזית בית חכמה: {(plannedIncome - plannedExpense).toLocaleString()} ₪</small>
               <strong className="account-balance">מאזן: {account.balance.toLocaleString()} ₪</strong>
             </article>
           ))}

@@ -835,7 +835,7 @@
   max-width: 720px;
   margin-inline: auto;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 0;
   background: var(--card);
   border-top: 1px solid var(--border);
@@ -1001,6 +1001,30 @@ input[type='month'] {
 
 .receipt-upload input[type='file'] {
   max-width: 100%;
+}
+
+.voice-btn {
+  width: 100%;
+  font-weight: 700;
+}
+
+.voice-btn.pulse {
+  animation: voicePulse 1.2s ease-in-out infinite;
+}
+
+@keyframes voicePulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(185, 28, 28, 0.35);
+  }
+  70% {
+    transform: scale(1.01);
+    box-shadow: 0 0 0 10px rgba(185, 28, 28, 0);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(185, 28, 28, 0);
+  }
 }
 
 .receipt-preview {
