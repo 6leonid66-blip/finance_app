@@ -2,10 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { supabase } from '../supabase'
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, isOtherCategory } from '../constants/categories'
-import type { EntryType, FinanceEntry, FinancialAccount } from '../types'
+import type { EntryType, FinanceEntry, FinancialAccount, HouseholdMemberBrief } from '../types'
 import { analyzeReceiptWithGemini } from '../lib/geminiReceipt'
 import { deleteReceiptAttachment, uploadReceiptAttachment } from '../lib/receiptStorage'
 import { MonthValuePicker } from './MonthValuePicker'
+import { householdAccountPickLabel } from '../lib/accountPickLabel'
 
 type TransactionsViewProps = {
   entries: FinanceEntry[]
@@ -13,6 +14,7 @@ type TransactionsViewProps = {
   onSelectedMonthChange: (month: string) => void
   householdId: string
   sessionUserId: string
+  householdMembers: HouseholdMemberBrief[]
   accounts: FinancialAccount[]
   selectedAccountId: string
   onSelectedAccountIdChange: (id: string) => void
@@ -94,6 +96,7 @@ export function TransactionsView({
   onSelectedMonthChange,
   householdId,
   sessionUserId,
+  householdMembers,
   accounts,
   selectedAccountId,
   onSelectedAccountIdChange,
@@ -977,7 +980,7 @@ export function TransactionsView({
                   {!accounts.length ? <option value="">אין חשבונות</option> : null}
                   {accounts.map((account) => (
                     <option key={account.id} value={account.id}>
-                      {account.name}
+                      {householdAccountPickLabel(account, sessionUserId, householdMembers)}
                     </option>
                   ))}
                 </select>
@@ -1084,7 +1087,7 @@ export function TransactionsView({
               <select value={editAccountId} onChange={(e) => setEditAccountId(e.target.value)} required>
                 {accounts.map((account) => (
                   <option key={account.id} value={account.id}>
-                    {account.name}
+                    {householdAccountPickLabel(account, sessionUserId, householdMembers)}
                   </option>
                 ))}
               </select>

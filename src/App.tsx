@@ -86,12 +86,6 @@ function App() {
   /** תצוגה משותפת: כל חשבונות הבית (אישיים לכל משתמש + משותפים לפי דגל is_shared). */
   const householdWideAccountIds = useMemo(() => accounts.map((account) => account.id), [accounts])
 
-  /** לרשימות בחירה ולכרטיסי חשבון: באישי — רק "חשבון שלי" של המחובר. */
-  const accountsVisibleForScope = useMemo(() => {
-    if (scopeMode === 'shared') return accounts
-    return accounts.filter((a) => !a.is_shared && a.owner_user_id === sessionUserId)
-  }, [accounts, scopeMode, sessionUserId])
-
   const changeScopeMode = useCallback(
     (mode: 'personal' | 'shared') => {
       setScopeMode(mode)
@@ -106,18 +100,38 @@ function App() {
     [accounts, sessionUserId],
   )
 
+  /** בחירת חשבון ששייך לבן זוג — מעביר אוטומטית לתצוגה משותפת כדי שהפיד לא ייראה ריק באישי. */
+  const handleAccountSelectFromPicker = useCallback(
+    (id: string) => {
+      const ac = accounts.find((a) => a.id === id)
+      if (
+        scopeMode === 'personal' &&
+        sessionUserId &&
+        ac &&
+        !ac.is_shared &&
+        ac.owner_user_id &&
+        ac.owner_user_id !== sessionUserId
+      ) {
+        setScopeMode('shared')
+      }
+      setSelectedAccountId(id)
+    },
+    [accounts, scopeMode, sessionUserId],
+  )
+
   useEffect(() => {
     if (!sessionUserId) return
-    const allowed = accountsVisibleForScope.map((a) => a.id)
+    const allowed = accounts.map((a) => a.id)
     if (!allowed.length) return
     if (selectedAccountId && allowed.includes(selectedAccountId)) return
     const t = window.setTimeout(() => {
       setSelectedAccountId(allowed[0]!)
     }, 0)
     return () => window.clearTimeout(t)
-  }, [sessionUserId, accountsVisibleForScope, selectedAccountId])
+  }, [sessionUserId, accounts, selectedAccountId])
 
   const accountsLoaded = accounts.length > 0
+  // סינון תנועות לפי אישי/משותף (לא משפיע על רשימת הבחירה לחשבון).
   const scopedEntries = useMemo(() => {
     if (!accountsLoaded) return entries
     const ids = scopeMode === 'shared' ? householdWideAccountIds : personalAccountIds
@@ -1167,14 +1181,14 @@ function App() {
                 plannedExpense={plannedExpense}
                 entries={scopedEntries}
                 historyEntries={scopedHistoryEntries}
-                accounts={accountsVisibleForScope}
+                accounts={accounts}
                 householdMembers={householdMembers}
                 selectedAccountId={selectedAccountId}
-                onSelectAccount={setSelectedAccountId}
+                onSelectAccount={handleAccountSelectFromPicker}
                 loading={loadingData}
                 onSignOut={signOut}
                 profile={profile}
-                currentUserId={sessionUserId}
+                currentUserId={sessionUserId ?? ''}
                 onSaveProfile={saveProfile}
                 onUploadProfilePhoto={uploadProfilePhoto}
                 scopeMode={scopeMode}
@@ -1189,9 +1203,10 @@ function App() {
                 onSelectedMonthChange={setSelectedMonth}
                 householdId={household.id}
                 sessionUserId={sessionUserId}
-                accounts={accountsVisibleForScope}
+                householdMembers={householdMembers}
+                accounts={accounts}
                 selectedAccountId={selectedAccountId}
-                onSelectedAccountIdChange={setSelectedAccountId}
+                onSelectedAccountIdChange={handleAccountSelectFromPicker}
                 loading={loadingData}
                 onRefresh={refreshMonth}
                 scopeMode={scopeMode}
@@ -1215,7 +1230,7 @@ function App() {
                 sessionUserId={sessionUserId}
                 accounts={accounts}
                 selectedAccountId={selectedAccountId}
-                onSelectedAccountIdChange={setSelectedAccountId}
+                onSelectedAccountIdChange={handleAccountSelectFromPicker}
                 scopeMode={scopeMode}
                 onScopeModeChange={changeScopeMode}
                 onRefresh={refreshMonth}
@@ -1298,9 +1313,10 @@ function App() {
             householdId={household.id}
             sessionUserId={sessionUserId}
             selectedMonth={selectedMonth}
-            accounts={accountsVisibleForScope}
+            householdMembers={householdMembers}
+            accounts={accounts}
             selectedAccountId={selectedAccountId}
-            onSelectedAccountIdChange={setSelectedAccountId}
+            onSelectedAccountIdChange={handleAccountSelectFromPicker}
             initialType={sheetType}
             prefill={sheetPrefill}
             onSaved={refreshMonth}

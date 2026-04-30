@@ -3,6 +3,7 @@ import type { FinanceEntry, FinancialAccount, HouseholdMemberBrief, UserProfileV
 import { MonthValuePicker } from './MonthValuePicker'
 import { generateHouseholdAdviceWithGemini } from '../lib/geminiReceipt'
 import { colorForCategory } from '../lib/categoryColors'
+import { householdAccountPickLabel } from '../lib/accountPickLabel'
 
 const ILS_FORMATTER = new Intl.NumberFormat('he-IL', { maximumFractionDigits: 0 })
 
@@ -25,6 +26,7 @@ type DashboardProps = {
   plannedExpense: number
   entries: FinanceEntry[]
   historyEntries: Array<{ type: 'income' | 'expense'; amount: number; occurred_on: string; planned: boolean }>
+  /** כל החשבונות בבית (למתג בחירה). בסעיף "חלוקה לפי חשבונות" בתצוגה אישית — רק של המשתמש. */
   accounts: FinancialAccount[]
   householdMembers: HouseholdMemberBrief[]
   selectedAccountId: string
@@ -267,6 +269,14 @@ export function Dashboard({
     setProfileSaving(false)
   }
 
+  const accountsShownInBreakdown = useMemo(
+    () =>
+      scopeMode === 'shared'
+        ? accounts
+        : accounts.filter((a) => !a.is_shared && a.owner_user_id === currentUserId),
+    [accounts, scopeMode, currentUserId],
+  )
+
   const balanceActual = actualIncome - actualExpense
   const balancePlanned = plannedIncome - plannedExpense
   const incomePct = pct(actualIncome, plannedIncome)
@@ -287,7 +297,7 @@ export function Dashboard({
   }, [historyEntries, plannedExpense, plannedIncome, selectedMonth])
   const accountSummaries = useMemo(
     () =>
-      accounts.map((account) => {
+      accountsShownInBreakdown.map((account) => {
         const list = entries.filter((entry) => entry.account_id === account.id && !entry.planned)
         const income = list.filter((entry) => entry.type === 'income').reduce((sum, entry) => sum + entry.amount, 0)
         const expense = list
@@ -301,7 +311,7 @@ export function Dashboard({
           kind: account.is_shared ? 'משותף' : account.owner_user_id ? 'אישי' : 'כללי',
         }
       }),
-    [accounts, entries],
+    [accountsShownInBreakdown, entries],
   )
   const expenseDistribution = useMemo(() => {
     // Coverage: every actual expense for the scoped+selected-month view
@@ -736,7 +746,7 @@ export function Dashboard({
           >
             {accounts.map((account) => (
               <option key={account.id} value={account.id}>
-                {account.name}
+                {householdAccountPickLabel(account, currentUserId, householdMembers)}
               </option>
             ))}
           </select>
@@ -745,7 +755,7 @@ export function Dashboard({
           {accountSummaries.map((account) => (
             <article key={account.id} className="account-card">
               <div className="account-title-row">
-                <strong>{account.name}</strong>
+                <strong>{householdAccountPickLabel(account, currentUserId, householdMembers)}</strong>
                 <span className="account-kind">{account.kind}</span>
               </div>
               <small>הכנסות: {account.income.toLocaleString()} ₪</small>

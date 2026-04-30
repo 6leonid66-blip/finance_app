@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { supabase } from '../supabase'
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, isOtherCategory } from '../constants/categories'
-import type { EntryType, FinancialAccount } from '../types'
+import type { EntryType, FinancialAccount, HouseholdMemberBrief } from '../types'
 import { analyzeReceiptWithGemini, analyzeSpokenExpenseWithGemini } from '../lib/geminiReceipt'
 import { uploadReceiptAttachment } from '../lib/receiptStorage'
 import { getSpeechRecognitionCtor } from '../lib/speech'
 import type { SpeechRecognitionLike } from '../lib/speech'
+import { householdAccountPickLabel } from '../lib/accountPickLabel'
 
 export type AddExpensePrefill = {
   amount?: string
@@ -21,6 +22,7 @@ type AddExpenseSheetProps = {
   householdId: string
   sessionUserId: string
   selectedMonth: string
+  householdMembers: HouseholdMemberBrief[]
   accounts: FinancialAccount[]
   selectedAccountId: string
   onSelectedAccountIdChange: (id: string) => void
@@ -35,6 +37,7 @@ export function AddExpenseSheet({
   householdId,
   sessionUserId,
   selectedMonth,
+  householdMembers,
   accounts,
   selectedAccountId,
   onSelectedAccountIdChange,
@@ -320,7 +323,7 @@ export function AddExpenseSheet({
               {!accounts.length ? <option value="">אין חשבונות</option> : null}
               {accounts.map((account) => (
                 <option key={account.id} value={account.id}>
-                  {account.name}
+                  {householdAccountPickLabel(account, sessionUserId, householdMembers)}
                 </option>
               ))}
             </select>
