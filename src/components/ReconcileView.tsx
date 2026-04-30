@@ -102,13 +102,21 @@ export function ReconcileView({
     setShowMatched(false)
   }
 
+  const accountsSelectable = useMemo(
+    () =>
+      scopeMode === 'shared'
+        ? accounts
+        : accounts.filter((a) => !a.is_shared && a.owner_user_id === sessionUserId),
+    [accounts, scopeMode, sessionUserId],
+  )
+
   const fetchAppTransactions = async (): Promise<FinanceEntry[]> => {
     if (!supabase) return []
     const personalAccountIds = accounts
       .filter((a) => !a.is_shared && a.owner_user_id === sessionUserId)
       .map((a) => a.id)
-    const sharedAccountIds = accounts.filter((a) => a.is_shared).map((a) => a.id)
-    const accountIds = scopeMode === 'shared' ? sharedAccountIds : personalAccountIds
+    const householdWideAccountIds = accounts.map((a) => a.id)
+    const accountIds = scopeMode === 'shared' ? householdWideAccountIds : personalAccountIds
 
     let query = supabase
       .from('transactions')
@@ -315,8 +323,8 @@ export function ReconcileView({
         <label>
           חשבון להוספת תנועות חסרות
           <select value={selectedAccountId} onChange={(e) => onSelectedAccountIdChange(e.target.value)}>
-            {!accounts.length ? <option value="">אין חשבונות</option> : null}
-            {accounts.map((account) => (
+            {!accountsSelectable.length ? <option value="">אין חשבונות</option> : null}
+            {accountsSelectable.map((account) => (
               <option key={account.id} value={account.id}>
                 {account.name}
               </option>

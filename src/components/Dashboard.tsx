@@ -26,6 +26,8 @@ type DashboardProps = {
   entries: FinanceEntry[]
   historyEntries: Array<{ type: 'income' | 'expense'; amount: number; occurred_on: string; planned: boolean }>
   accounts: FinancialAccount[]
+  /** מספר כל חשבונות הבית ב־DB (לטקסט "חשבון נוסף" כשלא נוסף משתמש). */
+  householdAccountCount: number
   selectedAccountId: string
   onSelectAccount: (id: string) => void
   loading: boolean
@@ -60,6 +62,7 @@ export function Dashboard({
   entries,
   historyEntries,
   accounts,
+  householdAccountCount,
   selectedAccountId,
   onSelectAccount,
   loading,
@@ -521,6 +524,9 @@ export function Dashboard({
             משותף
           </button>
         </div>
+        <p className="muted small" style={{ marginTop: 8 }}>
+          אישי: רק החשבון האישי שלך. משותף: כל חשבונות הבית — נתוני כל המצטרפים מוצגים יחד.
+        </p>
       </div>
 
       {!isStandalone ? (
@@ -738,7 +744,7 @@ export function Dashboard({
               <strong className="account-balance">מאזן: {account.balance.toLocaleString()} ₪</strong>
             </article>
           ))}
-          {accountSummaries.length < 2 ? (
+          {householdAccountCount < 2 ? (
             <article className="account-card account-card-placeholder">
               <strong>חשבון נוסף</strong>
               <small>כשיצורף משתמש נוסף, החשבון שלו יופיע כאן אוטומטית.</small>

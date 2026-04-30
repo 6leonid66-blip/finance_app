@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import type { FormEvent, PointerEvent as ReactPointerEvent } from 'react'
 import './App.css'
 import { AddExpenseSheet } from './components/AddExpenseSheet'
@@ -23,7 +23,8 @@ import type { SpeechRecognitionLike } from './lib/speech'
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from './constants/categories'
 
 function App() {
-  const [scopeMode, setScopeMode] = useState<'personal' | 'shared'>('personal')
+  // ברירת מחדל: משותף — כל תנועות הבית (כל חשבונות המשתמשים והמשותף).
+  const [scopeMode, setScopeMode] = useState<'personal' | 'shared'>('shared')
   const [screen, setScreen] = useState<AppScreen>('transactions')
   const [sheetOpen, setSheetOpen] = useState(false)
   const [sheetType, setSheetType] = useState<'expense' | 'income'>('expense')
@@ -81,23 +82,57 @@ function App() {
         .map((account) => account.id),
     [accounts, sessionUserId],
   )
-  const sharedAccountIds = useMemo(
-    () => accounts.filter((account) => account.is_shared).map((account) => account.id),
-    [accounts],
+  /** תצוגה משותפת: כל חשבונות הבית (אישיים לכל משתמש + משותפים לפי דגל is_shared). */
+  const householdWideAccountIds = useMemo(() => accounts.map((account) => account.id), [accounts])
+
+  /** לרשימות בחירה ולכרטיסי חשבון: באישי — רק "חשבון שלי" של המחובר. */
+  const accountsVisibleForScope = useMemo(() => {
+    if (scopeMode === 'shared') return accounts
+    return accounts.filter((a) => !a.is_shared && a.owner_user_id === sessionUserId)
+  }, [accounts, scopeMode, sessionUserId])
+
+  const changeScopeMode = useCallback(
+    (mode: 'personal' | 'shared') => {
+      setScopeMode(mode)
+      const visible =
+        mode === 'shared'
+          ? accounts
+          : accounts.filter((a) => !a.is_shared && a.owner_user_id === sessionUserId)
+      const ids = visible.map((a) => a.id)
+      if (!ids.length) return
+      setSelectedAccountId((prev) => (prev && ids.includes(prev) ? prev : ids[0]!))
+    },
+    [accounts, sessionUserId],
   )
+
+  useEffect(() => {
+    if (!sessionUserId) return
+    const allowed = accountsVisibleForScope.map((a) => a.id)
+    if (!allowed.length) return
+    if (selectedAccountId && allowed.includes(selectedAccountId)) return
+    const t = window.setTimeout(() => {
+      setSelectedAccountId(allowed[0]!)
+    }, 0)
+    return () => window.clearTimeout(t)
+  }, [sessionUserId, accountsVisibleForScope, selectedAccountId])
+
   const accountsLoaded = accounts.length > 0
   const scopedEntries = useMemo(() => {
     if (!accountsLoaded) return entries
-    const ids = scopeMode === 'shared' ? sharedAccountIds : personalAccountIds
+    const ids = scopeMode === 'shared' ? householdWideAccountIds : personalAccountIds
     const idSet = new Set(ids)
-    return entries.filter((entry) => (entry.account_id ? idSet.has(entry.account_id) : scopeMode !== 'shared'))
-  }, [accountsLoaded, entries, personalAccountIds, scopeMode, sharedAccountIds])
+    return entries.filter((entry) =>
+      entry.account_id ? idSet.has(entry.account_id) : true,
+    )
+  }, [accountsLoaded, entries, householdWideAccountIds, personalAccountIds, scopeMode])
   const scopedHistoryEntries = useMemo(() => {
     if (!accountsLoaded) return historyEntries
-    const ids = scopeMode === 'shared' ? sharedAccountIds : personalAccountIds
+    const ids = scopeMode === 'shared' ? householdWideAccountIds : personalAccountIds
     const idSet = new Set(ids)
-    return historyEntries.filter((entry) => (entry.account_id ? idSet.has(entry.account_id) : scopeMode !== 'shared'))
-  }, [accountsLoaded, historyEntries, personalAccountIds, scopeMode, sharedAccountIds])
+    return historyEntries.filter((entry) =>
+      entry.account_id ? idSet.has(entry.account_id) : true,
+    )
+  }, [accountsLoaded, historyEntries, householdWideAccountIds, personalAccountIds, scopeMode])
   const actualIncome = useMemo(
     () => scopedEntries.filter((e) => e.type === 'income' && !e.planned).reduce((s, e) => s + e.amount, 0),
     [scopedEntries],
@@ -1058,7 +1093,8 @@ function App() {
                 plannedExpense={plannedExpense}
                 entries={scopedEntries}
                 historyEntries={scopedHistoryEntries}
-                accounts={accounts}
+                accounts={accountsVisibleForScope}
+                householdAccountCount={accounts.length}
                 selectedAccountId={selectedAccountId}
                 onSelectAccount={setSelectedAccountId}
                 loading={loadingData}
@@ -1068,7 +1104,7 @@ function App() {
                 onSaveProfile={saveProfile}
                 onUploadProfilePhoto={uploadProfilePhoto}
                 scopeMode={scopeMode}
-                onScopeModeChange={setScopeMode}
+                onScopeModeChange={changeScopeMode}
               />
             ) : null}
 
@@ -1079,13 +1115,13 @@ function App() {
                 onSelectedMonthChange={setSelectedMonth}
                 householdId={household.id}
                 sessionUserId={sessionUserId}
-                accounts={accounts}
+                accounts={accountsVisibleForScope}
                 selectedAccountId={selectedAccountId}
                 onSelectedAccountIdChange={setSelectedAccountId}
                 loading={loadingData}
                 onRefresh={refreshMonth}
                 scopeMode={scopeMode}
-                onScopeModeChange={setScopeMode}
+                onScopeModeChange={changeScopeMode}
               />
             ) : null}
 
@@ -1095,7 +1131,7 @@ function App() {
                 selectedMonth={selectedMonth}
                 onTemplatesChanged={refreshAfterTemplateChange}
                 scopeMode={scopeMode}
-                onScopeModeChange={setScopeMode}
+                onScopeModeChange={changeScopeMode}
               />
             ) : null}
 
@@ -1107,7 +1143,7 @@ function App() {
                 selectedAccountId={selectedAccountId}
                 onSelectedAccountIdChange={setSelectedAccountId}
                 scopeMode={scopeMode}
-                onScopeModeChange={setScopeMode}
+                onScopeModeChange={changeScopeMode}
                 onRefresh={refreshMonth}
                 onPrefillAddExpense={handlePrefillAddExpense}
               />
@@ -1119,7 +1155,7 @@ function App() {
                 sessionUserId={sessionUserId}
                 ledger={compactLedger}
                 scopeMode={scopeMode}
-                onScopeModeChange={setScopeMode}
+                onScopeModeChange={changeScopeMode}
                 onPrefillAddExpense={handlePrefillAddExpense}
               />
             ) : null}
@@ -1188,7 +1224,7 @@ function App() {
             householdId={household.id}
             sessionUserId={sessionUserId}
             selectedMonth={selectedMonth}
-            accounts={accounts}
+            accounts={accountsVisibleForScope}
             selectedAccountId={selectedAccountId}
             onSelectedAccountIdChange={setSelectedAccountId}
             initialType={sheetType}
