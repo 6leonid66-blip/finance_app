@@ -23,8 +23,8 @@ import type { SpeechRecognitionLike } from './lib/speech'
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from './constants/categories'
 
 function App() {
-  // ברירת מחדל: משותף — כל תנועות הבית (כל חשבונות המשתמשים והמשותף).
-  const [scopeMode, setScopeMode] = useState<'personal' | 'shared'>('shared')
+  // ברירת מחדל: אישי — מתחילים מתצוגה אישית; "משותף" לשיתוף עם בן/בת הזוג.
+  const [scopeMode, setScopeMode] = useState<'personal' | 'shared'>('personal')
   const [screen, setScreen] = useState<AppScreen>('transactions')
   const [sheetOpen, setSheetOpen] = useState(false)
   const [sheetType, setSheetType] = useState<'expense' | 'income'>('expense')
@@ -195,11 +195,33 @@ function App() {
       .from('household_members')
       .select('user_id')
       .eq('household_id', householdId)
-    if (mErr || !memberRows?.length) {
+
+    const idsFromMembership =
+      !mErr && memberRows?.length
+        ? ([...new Set(memberRows.map((r) => r.user_id).filter(Boolean))] as string[])
+        : []
+
+    const { data: accountRows } = await supabase
+      .from('financial_accounts')
+      .select('owner_user_id')
+      .eq('household_id', householdId)
+      .eq('active', true)
+
+    const idsFromAccounts = [
+      ...new Set(
+        ((accountRows ?? []) as Array<{ owner_user_id: string | null }>)
+          .map((r) => r.owner_user_id)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ]
+
+    const userIds = [...new Set([...idsFromMembership, ...idsFromAccounts])]
+
+    if (!userIds.length) {
       setHouseholdMembers([])
       return
     }
-    const userIds = [...new Set(memberRows.map((r) => r.user_id).filter(Boolean))] as string[]
+
     const profRes = await supabase.from('profiles').select('id,email,full_name,avatar_url').in('id', userIds)
     let profs:
       | Array<{ id: string; email: string | null; full_name: string | null; avatar_url: string | null }>
