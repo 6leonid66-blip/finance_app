@@ -9,6 +9,13 @@ export interface Household {
   name: string
 }
 
+/** חבר בית לרצועת "המשפחה שלנו" — נטען מ-household_members + profiles. */
+export type HouseholdMemberBrief = {
+  userId: string
+  displayName: string
+  avatarUrl: string | null
+}
+
 export interface FinanceEntry {
   id: string
   owner_id: string

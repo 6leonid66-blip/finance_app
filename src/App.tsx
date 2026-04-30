@@ -12,7 +12,7 @@ import { ReconcileView } from './components/ReconcileView'
 import { AssistantView } from './components/AssistantView'
 import { buildCompactLedger } from './lib/assistantContext'
 import { isSupabaseConfigured, supabase } from './supabase'
-import type { AppScreen, EntryType, FinanceEntry, FinancialAccount, Household, RecurringEndRule, UserProfileView } from './types'
+import type { AppScreen, EntryType, FinanceEntry, FinancialAccount, Household, HouseholdMemberBrief, RecurringEndRule, UserProfileView } from './types'
 import { getReceiptPublicUrl } from './lib/receiptStorage'
 import { uploadProfileImage } from './lib/profileStorage'
 import { analyzeSpokenExpenseWithGemini } from './lib/geminiReceipt'
@@ -74,6 +74,7 @@ function App() {
   const [selectedAccountId, setSelectedAccountId] = useState<string>('')
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [recurringRpcError, setRecurringRpcError] = useState<string | null>(null)
+  const [householdMembers, setHouseholdMembers] = useState<HouseholdMemberBrief[]>([])
 
   const personalAccountIds = useMemo(
     () =>
@@ -188,6 +189,53 @@ function App() {
     return typeof error === 'string' ? error : 'שגיאה לא צפויה'
   }
 
+  async function refreshHouseholdMembers(householdId: string) {
+    if (!supabase) return
+    const { data: memberRows, error: mErr } = await supabase
+      .from('household_members')
+      .select('user_id')
+      .eq('household_id', householdId)
+    if (mErr || !memberRows?.length) {
+      setHouseholdMembers([])
+      return
+    }
+    const userIds = [...new Set(memberRows.map((r) => r.user_id).filter(Boolean))] as string[]
+    const profRes = await supabase.from('profiles').select('id,email,full_name,avatar_url').in('id', userIds)
+    let profs:
+      | Array<{ id: string; email: string | null; full_name: string | null; avatar_url: string | null }>
+      | null
+      | undefined = profRes.data as typeof profs
+    if (profRes.error?.code === '42703') {
+      const fb = await supabase.from('profiles').select('id,email,full_name').in('id', userIds)
+      if (fb.error) {
+        setHouseholdMembers([])
+        return
+      }
+      profs = ((fb.data ?? []) as Array<{ id: string; email: string | null; full_name: string | null }>).map((p) => ({
+        ...p,
+        avatar_url: null as string | null,
+      }))
+    } else if (profRes.error) {
+      setHouseholdMembers([])
+      return
+    }
+    const list: HouseholdMemberBrief[] = userIds.map((uid) => {
+      const p = profs?.find((x) => x.id === uid)
+      const fromProfile = (p?.full_name?.trim() || p?.email?.split('@')[0]?.trim() || '').trim()
+      return {
+        userId: uid,
+        displayName: fromProfile || 'חבר בית',
+        avatarUrl: p?.avatar_url ?? null,
+      }
+    })
+    list.sort((a, b) => {
+      if (a.userId === sessionUserId) return -1
+      if (b.userId === sessionUserId) return 1
+      return a.displayName.localeCompare(b.displayName, 'he')
+    })
+    setHouseholdMembers(list)
+  }
+
   const getAuthRedirectTo = () => {
     if (typeof window === 'undefined') return undefined
     return window.location.origin
@@ -266,6 +314,7 @@ function App() {
         if (existingHouseholdError) throw existingHouseholdError
         setHousehold(householdRow as Household)
         await ensureUserAccount((householdRow as Household).id, userId)
+        void refreshHouseholdMembers((householdRow as Household).id)
         return
       }
 
@@ -284,6 +333,7 @@ function App() {
       if (!resolvedId) throw new Error('לא הצלחתי ליצור בית חדש')
       setHousehold({ id: resolvedId, name: resolvedName ?? 'הבית שלנו' })
       await ensureUserAccount(resolvedId, userId)
+      void refreshHouseholdMembers(resolvedId)
       setStatusMessage('נוצר בית חדש. אפשר להתחיל.')
     } catch (error) {
       setStatusMessage(`שגיאה בטעינת המשתמש: ${describeError(error)}`)
@@ -511,6 +561,7 @@ function App() {
           owner_id: row.owner_id,
         })),
       )
+      void refreshHouseholdMembers(householdId)
     } catch (error) {
       setStatusMessage(`שגיאה בטעינת החודש: ${describeError(error)}`)
     } finally {
@@ -556,6 +607,7 @@ function App() {
         setEntries([])
         setHistoryEntries([])
         setAccounts([])
+        setHouseholdMembers([])
         setProfile({ full_name: null, email: null, avatar_path: null, avatar_url: null })
         setSelectedAccountId('')
       }
@@ -1094,7 +1146,7 @@ function App() {
                 entries={scopedEntries}
                 historyEntries={scopedHistoryEntries}
                 accounts={accountsVisibleForScope}
-                householdAccountCount={accounts.length}
+                householdMembers={householdMembers}
                 selectedAccountId={selectedAccountId}
                 onSelectAccount={setSelectedAccountId}
                 loading={loadingData}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { FinanceEntry, FinancialAccount, UserProfileView } from '../types'
+import type { FinanceEntry, FinancialAccount, HouseholdMemberBrief, UserProfileView } from '../types'
 import { MonthValuePicker } from './MonthValuePicker'
 import { generateHouseholdAdviceWithGemini } from '../lib/geminiReceipt'
 import { colorForCategory } from '../lib/categoryColors'
@@ -26,8 +26,7 @@ type DashboardProps = {
   entries: FinanceEntry[]
   historyEntries: Array<{ type: 'income' | 'expense'; amount: number; occurred_on: string; planned: boolean }>
   accounts: FinancialAccount[]
-  /** מספר כל חשבונות הבית ב־DB (לטקסט "חשבון נוסף" כשלא נוסף משתמש). */
-  householdAccountCount: number
+  householdMembers: HouseholdMemberBrief[]
   selectedAccountId: string
   onSelectAccount: (id: string) => void
   loading: boolean
@@ -62,7 +61,7 @@ export function Dashboard({
   entries,
   historyEntries,
   accounts,
-  householdAccountCount,
+  householdMembers,
   selectedAccountId,
   onSelectAccount,
   loading,
@@ -116,24 +115,35 @@ export function Dashboard({
   }, [profile.full_name, profile.email])
 
   const familyMembers = useMemo(() => {
+    if (householdMembers.length > 0) {
+      return householdMembers.map((m) => ({
+        id: m.userId,
+        name:
+          m.userId === currentUserId
+            ? profile.full_name?.trim() || profile.email?.split('@')[0]?.trim() || m.displayName
+            : m.displayName,
+        avatar_url: m.userId === currentUserId ? (profile.avatar_url ?? m.avatarUrl) : m.avatarUrl,
+      }))
+    }
+
     const members = new Map<string, { name: string; avatar_url: string | null }>()
     entries.forEach((entry) => {
       if (!entry.owner_id) return
       if (!members.has(entry.owner_id)) {
         members.set(entry.owner_id, {
-          name: entry.owner_name?.trim() || entry.owner_email?.split('@')[0] || 'משתמש',
+          name: entry.owner_name?.trim() || entry.owner_email?.split('@')[0]?.trim() || 'חבר בית',
           avatar_url: entry.owner_avatar_url ?? null,
         })
       }
     })
     if (!members.has(currentUserId)) {
       members.set(currentUserId, {
-        name: profile.full_name?.trim() || profile.email?.split('@')[0] || 'אני',
+        name: profile.full_name?.trim() || profile.email?.split('@')[0]?.trim() || 'אני',
         avatar_url: profile.avatar_url ?? null,
       })
     }
     return Array.from(members.entries()).map(([id, value]) => ({ id, ...value }))
-  }, [entries, currentUserId, profile.full_name, profile.email, profile.avatar_url])
+  }, [householdMembers, entries, currentUserId, profile.full_name, profile.email, profile.avatar_url])
 
   useEffect(() => {
     const onBeforeInstall = (event: Event) => {
@@ -288,7 +298,7 @@ export function Dashboard({
           income,
           expense,
           balance: income - expense,
-          kind: account.is_shared ? 'משותף' : account.owner_user_id ? 'אישי' : 'חשבון נוסף',
+          kind: account.is_shared ? 'משותף' : account.owner_user_id ? 'אישי' : 'כללי',
         }
       }),
     [accounts, entries],
@@ -744,12 +754,6 @@ export function Dashboard({
               <strong className="account-balance">מאזן: {account.balance.toLocaleString()} ₪</strong>
             </article>
           ))}
-          {householdAccountCount < 2 ? (
-            <article className="account-card account-card-placeholder">
-              <strong>חשבון נוסף</strong>
-              <small>כשיצורף משתמש נוסף, החשבון שלו יופיע כאן אוטומטית.</small>
-            </article>
-          ) : null}
         </div>
       </section>
       {showProfile ? (
