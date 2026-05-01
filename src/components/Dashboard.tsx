@@ -28,7 +28,7 @@ type DashboardProps = {
   plannedExpense: number
   entries: FinanceEntry[]
   historyEntries: Array<{ type: 'income' | 'expense'; amount: number; occurred_on: string; planned: boolean }>
-  /** כל החשבונות בבית (למתג בחירה). בתצוגה אישית: חשבונות שלי + משותפים (לפי תנועות שאני רשמת בפיד). */
+  /** כל חשבונות הבית (בחירה וחלוקה למטה). הסכומים בכרטיסים מגיעים מ-entries שכבר מסוננים לאישי/משותף ב-App. */
   accounts: FinancialAccount[]
   householdId: string
   householdMembers: HouseholdMemberBrief[]
@@ -308,15 +308,8 @@ export function Dashboard({
     setProfileSaving(false)
   }
 
-  const accountsShownInBreakdown = useMemo(
-    () =>
-      scopeMode === 'shared'
-        ? accounts
-        : accounts.filter(
-            (a) => a.is_shared || (!a.is_shared && a.owner_user_id === currentUserId),
-          ),
-    [accounts, scopeMode, currentUserId],
-  )
+  /** כל חשבונות הבית — התנועות ב-entries כבר מסוננות לאישי/משותף; כאן רוצים תמיד תוויות «חשבון שלי» / בן זוג גם במצב אישי. */
+  const accountsShownInBreakdown = useMemo(() => accounts, [accounts])
 
   const balanceActual = actualIncome - actualExpense
   const balancePlanned = plannedIncome - plannedExpense

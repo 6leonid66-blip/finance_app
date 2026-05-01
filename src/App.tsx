@@ -1282,7 +1282,7 @@ function App() {
                 plannedExpense={plannedExpense}
                 entries={scopedEntries}
                 historyEntries={scopedHistoryEntries}
-                accounts={scopeForData === 'shared' ? accounts : personalScopeAccounts}
+                accounts={accounts}
                 householdId={household.id}
                 householdMembers={householdMembers}
                 selectedAccountId={selectedAccountId}
