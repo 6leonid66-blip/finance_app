@@ -77,24 +77,35 @@ function App() {
   const [recurringRpcError, setRecurringRpcError] = useState<string | null>(null)
   const [householdMembers, setHouseholdMembers] = useState<HouseholdMemberBrief[]>([])
 
-  const personalAccountIds = useMemo(
+  /** חשבונות שמציגים במצב אישי: האישיים שלי + כל החשבונות המשותפים (לפיד, בחירה, פירוט). */
+  const personalScopeAccounts = useMemo(
     () =>
-      accounts
-        .filter((account) => !account.is_shared && account.owner_user_id === sessionUserId)
-        .map((account) => account.id),
+      accounts.filter(
+        (a) => a.is_shared || (!a.is_shared && a.owner_user_id === sessionUserId),
+      ),
     [accounts, sessionUserId],
+  )
+  const personalScopeAccountIds = useMemo(
+    () => personalScopeAccounts.map((a) => a.id),
+    [personalScopeAccounts],
   )
   /** תצוגה משותפת: כל חשבונות הבית (אישיים לכל משתמש + משותפים לפי דגל is_shared). */
   const householdWideAccountIds = useMemo(() => accounts.map((account) => account.id), [accounts])
 
-  const hasPersonalAccounts = personalAccountIds.length > 0
-  /** כשאין חשבון אישי — נתונים כמו במשותף עד שמסנכרנים את scopeMode (אפקט). */
+  const canUsePersonalScope = useMemo(() => {
+    if (!sessionUserId || !accounts.length) return false
+    return personalScopeAccountIds.length > 0
+  }, [sessionUserId, accounts.length, personalScopeAccountIds.length])
+
+  /** כשאין אף חשבון רלוונטי לאישי — נתונים כמו במשותף עד שמסנכרנים את scopeMode (אפקט). */
   const scopeForData: 'personal' | 'shared' =
-    scopeMode === 'personal' && !hasPersonalAccounts ? 'shared' : scopeMode
+    scopeMode === 'personal' && !canUsePersonalScope ? 'shared' : scopeMode
 
   const changeScopeMode = useCallback(
     (mode: 'personal' | 'shared') => {
-      const personalVisible = accounts.filter((a) => !a.is_shared && a.owner_user_id === sessionUserId)
+      const personalVisible = accounts.filter(
+        (a) => a.is_shared || (!a.is_shared && a.owner_user_id === sessionUserId),
+      )
       const effectiveMode = mode === 'personal' && !personalVisible.length ? 'shared' : mode
       setScopeMode(effectiveMode)
       const visible =
@@ -130,13 +141,14 @@ function App() {
   const allowedAccountIdsForScope = useMemo(() => {
     if (!sessionUserId || !accounts.length) return []
     if (scopeForData === 'shared') return accounts.map((a) => a.id)
-    const personal = accounts.filter((a) => !a.is_shared && a.owner_user_id === sessionUserId).map((a) => a.id)
-    return personal.length ? personal : accounts.map((a) => a.id)
-  }, [accounts, scopeForData, sessionUserId])
+    return personalScopeAccountIds.length ? personalScopeAccountIds : accounts.map((a) => a.id)
+  }, [accounts, scopeForData, sessionUserId, personalScopeAccountIds])
 
   useEffect(() => {
     if (!sessionUserId || !accounts.length) return
-    const hasPersonal = accounts.some((a) => !a.is_shared && a.owner_user_id === sessionUserId)
+    const hasPersonal = accounts.some(
+      (a) => a.is_shared || (!a.is_shared && a.owner_user_id === sessionUserId),
+    )
     if (scopeMode === 'personal' && !hasPersonal) {
       const t = window.setTimeout(() => {
         setScopeMode('shared')
@@ -158,41 +170,29 @@ function App() {
   }, [sessionUserId, allowedAccountIdsForScope, selectedAccountId])
 
   const accountsLoaded = accounts.length > 0
-  // סינון תנועות לפי אישי/משותף (לא משפיע על רשימת הבחירה לחשבון).
+  // אישי = רק תנועות שהמשתמש הנוכחי רשם (owner_id). משותף = כל תנועות הבית לפי חשבונות ידועים.
   const scopedEntries = useMemo(() => {
+    if (scopeForData === 'personal' && sessionUserId) {
+      return entries.filter((entry) => entry.owner_id === sessionUserId)
+    }
     if (!accountsLoaded) return entries
-    const ids = scopeForData === 'shared' ? householdWideAccountIds : personalAccountIds
-    const idSet = new Set(ids)
+    const idSet = new Set(householdWideAccountIds)
     return entries.filter((entry) => {
       if (entry.account_id) return idSet.has(entry.account_id)
-      if (scopeForData === 'shared') return true
-      return sessionUserId != null && entry.owner_id === sessionUserId
+      return true
     })
-  }, [
-    accountsLoaded,
-    entries,
-    householdWideAccountIds,
-    personalAccountIds,
-    scopeForData,
-    sessionUserId,
-  ])
+  }, [accountsLoaded, entries, householdWideAccountIds, scopeForData, sessionUserId])
   const scopedHistoryEntries = useMemo(() => {
+    if (scopeForData === 'personal' && sessionUserId) {
+      return historyEntries.filter((entry) => entry.owner_id === sessionUserId)
+    }
     if (!accountsLoaded) return historyEntries
-    const ids = scopeForData === 'shared' ? householdWideAccountIds : personalAccountIds
-    const idSet = new Set(ids)
+    const idSet = new Set(householdWideAccountIds)
     return historyEntries.filter((entry) => {
       if (entry.account_id) return idSet.has(entry.account_id)
-      if (scopeForData === 'shared') return true
-      return sessionUserId != null && entry.owner_id === sessionUserId
+      return true
     })
-  }, [
-    accountsLoaded,
-    historyEntries,
-    householdWideAccountIds,
-    personalAccountIds,
-    scopeForData,
-    sessionUserId,
-  ])
+  }, [accountsLoaded, historyEntries, householdWideAccountIds, scopeForData, sessionUserId])
   const actualIncome = useMemo(
     () => scopedEntries.filter((e) => e.type === 'income' && !e.planned).reduce((s, e) => s + e.amount, 0),
     [scopedEntries],
@@ -1279,7 +1279,7 @@ function App() {
                 plannedExpense={plannedExpense}
                 entries={scopedEntries}
                 historyEntries={scopedHistoryEntries}
-                accounts={accounts}
+                accounts={scopeForData === 'shared' ? accounts : personalScopeAccounts}
                 householdId={household.id}
                 householdMembers={householdMembers}
                 selectedAccountId={selectedAccountId}
@@ -1308,7 +1308,7 @@ function App() {
                 householdId={household.id}
                 sessionUserId={sessionUserId}
                 householdMembers={householdMembers}
-                accounts={accounts}
+                accounts={scopeForData === 'shared' ? accounts : personalScopeAccounts}
                 selectedAccountId={selectedAccountId}
                 onSelectedAccountIdChange={handleAccountSelectFromPicker}
                 loading={loadingData}
@@ -1332,7 +1332,7 @@ function App() {
               <ReconcileView
                 householdId={household.id}
                 sessionUserId={sessionUserId}
-                accounts={accounts}
+                accounts={scopeForData === 'shared' ? accounts : personalScopeAccounts}
                 selectedAccountId={selectedAccountId}
                 onSelectedAccountIdChange={handleAccountSelectFromPicker}
                 scopeMode={scopeForData}
@@ -1418,7 +1418,7 @@ function App() {
             householdId={household.id}
             sessionUserId={sessionUserId}
             householdMembers={householdMembers}
-            accounts={accounts}
+            accounts={scopeForData === 'shared' ? accounts : personalScopeAccounts}
             selectedAccountId={selectedAccountId}
             onSelectedAccountIdChange={handleAccountSelectFromPicker}
             initialType={sheetType}

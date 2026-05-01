@@ -28,7 +28,7 @@ type DashboardProps = {
   plannedExpense: number
   entries: FinanceEntry[]
   historyEntries: Array<{ type: 'income' | 'expense'; amount: number; occurred_on: string; planned: boolean }>
-  /** כל החשבונות בבית (למתג בחירה). בסעיף "חלוקה לפי חשבונות" בתצוגה אישית — רק של המשתמש. */
+  /** כל החשבונות בבית (למתג בחירה). בתצוגה אישית: חשבונות שלי + משותפים (לפי תנועות שאני רשמת בפיד). */
   accounts: FinancialAccount[]
   householdId: string
   householdMembers: HouseholdMemberBrief[]
@@ -295,7 +295,9 @@ export function Dashboard({
     () =>
       scopeMode === 'shared'
         ? accounts
-        : accounts.filter((a) => !a.is_shared && a.owner_user_id === currentUserId),
+        : accounts.filter(
+            (a) => a.is_shared || (!a.is_shared && a.owner_user_id === currentUserId),
+          ),
     [accounts, scopeMode, currentUserId],
   )
 
@@ -580,7 +582,7 @@ export function Dashboard({
           </button>
         </div>
         <p className="muted small" style={{ marginTop: 8 }}>
-          אישי: רק החשבון האישי שלך. משותף: כל חשבונות הבית — נתוני כל המצטרפים מוצגים יחד.
+          אישי: רק תנועות שאת/ה רשמת (כולל על חשבון משותף). משותף: כל תנועות הבית של כולם יחד.
         </p>
       </div>
 

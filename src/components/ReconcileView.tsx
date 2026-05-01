@@ -106,20 +106,16 @@ export function ReconcileView({
     () =>
       scopeMode === 'shared'
         ? accounts
-        : accounts.filter((a) => !a.is_shared && a.owner_user_id === sessionUserId),
+        : accounts.filter(
+            (a) => a.is_shared || (!a.is_shared && a.owner_user_id === sessionUserId),
+          ),
     [accounts, scopeMode, sessionUserId],
   )
 
   const fetchAppTransactions = async (): Promise<FinanceEntry[]> => {
     if (!supabase) return []
-    const personalAccountIds = accounts
-      .filter((a) => !a.is_shared && a.owner_user_id === sessionUserId)
-      .map((a) => a.id)
     const householdWideAccountIds = accounts.map((a) => a.id)
 
-    if (scopeMode === 'personal' && !personalAccountIds.length) {
-      return []
-    }
     if (scopeMode === 'shared' && !householdWideAccountIds.length) {
       return []
     }
@@ -138,8 +134,11 @@ export function ReconcileView({
       const ids = householdWideAccountIds.join(',')
       query = query.or(`account_id.in.(${ids}),account_id.is.null`)
     } else {
-      const ids = personalAccountIds.join(',')
-      query = query.or(`account_id.in.(${ids}),and(account_id.is.null,owner_id.eq.${sessionUserId})`)
+      query = query.eq('owner_id', sessionUserId)
+      if (householdWideAccountIds.length) {
+        const ids = householdWideAccountIds.join(',')
+        query = query.or(`account_id.in.(${ids}),account_id.is.null`)
+      }
     }
 
     const { data, error: qErr } = await query

@@ -370,7 +370,8 @@ export function TransactionsView({
   }, [selectedMonth])
 
   const scopeLabel = scopeMode === 'shared' ? 'משותף' : 'אישי'
-  const totalsSubtitle = `${scopeLabel} · ${monthLabel} · ${filteredTotals.count.toLocaleString()} תנועות`
+  const scopeHint = scopeMode === 'shared' ? 'כל המשתמשים' : 'רק תנועות שלי'
+  const totalsSubtitle = `${scopeLabel} (${scopeHint}) · ${monthLabel} · ${filteredTotals.count.toLocaleString()} תנועות`
 
   useEffect(() => {
     return () => {

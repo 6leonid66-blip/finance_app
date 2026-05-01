@@ -222,7 +222,7 @@ export function AssistantView({
             </button>
           </div>
         </div>
-        <p className="muted small">{`חודש: ${ledger.current_month} · ${scopeMode === 'shared' ? 'משותף' : 'אישי'} · ${ledger.recent_transactions.length} תנועות אחרונות`}</p>
+        <p className="muted small">{`חודש: ${ledger.current_month} · ${scopeMode === 'shared' ? 'משותף (כולם)' : 'אישי (רק שלי)'} · ${ledger.recent_transactions.length} תנועות אחרונות`}</p>
         <div className="segmented">
           <button
             type="button"
