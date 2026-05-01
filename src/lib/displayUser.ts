@@ -17,3 +17,15 @@ export function householdMemberUsernameLabel(
   if (userId.length >= 8) return userId.slice(0, 8)
   return fallback
 }
+
+/** שם תצוגה ברשימת חברי בית: שם מלא מפרופיל, אחרת שם משתמש מהאימייל. */
+export function memberProfileDisplayName(
+  fullName: string | null | undefined,
+  email: string | null | undefined,
+  userId: string,
+  fallback = 'חבר בית',
+): string {
+  const n = fullName?.trim()
+  if (n) return n
+  return householdMemberUsernameLabel(email, userId, fallback)
+}

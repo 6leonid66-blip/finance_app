@@ -7,7 +7,7 @@ import { analyzeReceiptWithGemini } from '../lib/geminiReceipt'
 import { deleteReceiptAttachment, uploadReceiptAttachment } from '../lib/receiptStorage'
 import { MonthValuePicker } from './MonthValuePicker'
 import { householdAccountPickLabel } from '../lib/accountPickLabel'
-import { householdMemberUsernameLabel } from '../lib/displayUser'
+import { memberProfileDisplayName } from '../lib/displayUser'
 
 type TransactionsViewProps = {
   entries: FinanceEntry[]
@@ -38,7 +38,7 @@ type FeedItem = {
 }
 
 function ownerLabel(entry: FinanceEntry) {
-  return householdMemberUsernameLabel(entry.owner_email, entry.owner_id, 'משתמש')
+  return memberProfileDisplayName(entry.owner_name, entry.owner_email, entry.owner_id, 'משתמש')
 }
 
 /** Same ordering as legacy feed: category → created_at → occurred_on → id */

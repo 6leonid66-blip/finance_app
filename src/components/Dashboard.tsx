@@ -5,7 +5,7 @@ import { generateHouseholdAdviceWithGemini } from '../lib/geminiReceipt'
 import { colorForCategory } from '../lib/categoryColors'
 import { householdAccountPickLabel } from '../lib/accountPickLabel'
 import { supabase } from '../supabase'
-import { householdMemberUsernameLabel, usernameFromEmail } from '../lib/displayUser'
+import { householdMemberUsernameLabel, memberProfileDisplayName, usernameFromEmail } from '../lib/displayUser'
 
 const ILS_FORMATTER = new Intl.NumberFormat('he-IL', { maximumFractionDigits: 0 })
 
@@ -140,7 +140,7 @@ export function Dashboard({
         id: m.userId,
         name:
           m.userId === currentUserId
-            ? usernameFromEmail(profile.email) || householdMemberUsernameLabel(profile.email, currentUserId, 'אני')
+            ? memberProfileDisplayName(profile.full_name, profile.email, currentUserId, 'אני')
             : m.displayName,
         avatar_url: m.userId === currentUserId ? (profile.avatar_url ?? m.avatarUrl) : m.avatarUrl,
       }))
@@ -160,14 +160,12 @@ export function Dashboard({
     })
     if (!members.has(currentUserId)) {
       members.set(currentUserId, {
-        name:
-          usernameFromEmail(profile.email) ||
-          householdMemberUsernameLabel(profile.email, currentUserId, 'אני'),
+        name: memberProfileDisplayName(profile.full_name, profile.email, currentUserId, 'אני'),
         avatar_url: profile.avatar_url ?? null,
       })
     }
     return Array.from(members.entries()).map(([id, value]) => ({ id, ...value }))
-  }, [householdMembers, entries, currentUserId, profile.email, profile.avatar_url])
+  }, [householdMembers, entries, currentUserId, profile.full_name, profile.email, profile.avatar_url])
 
   useEffect(() => {
     const onBeforeInstall = (event: Event) => {
@@ -265,6 +263,25 @@ export function Dashboard({
 
   const submitProfile = async () => {
     setProfileSaving(true)
+    setProfileMessage(null)
+    setFamilyNameMessage(null)
+
+    const trimmedHouse = familyNameDraft.trim()
+    const houseChanged = trimmedHouse !== householdName.trim()
+    if (houseChanged) {
+      if (!trimmedHouse) {
+        setFamilyNameMessage('שם בית לא יכול להיות ריק')
+        setProfileSaving(false)
+        return
+      }
+      const hr = await onRenameHousehold(trimmedHouse)
+      setFamilyNameMessage(hr.message)
+      if (!hr.ok) {
+        setProfileSaving(false)
+        return
+      }
+    }
+
     const result = await onSaveProfile({
       full_name: profileName,
       avatar_url: profileAvatarUrl,
@@ -828,6 +845,9 @@ export function Dashboard({
                   maxLength={120}
                 />
               </label>
+              <p className="muted small" style={{ marginTop: 8 }}>
+                אפשר גם ללחוץ למטה על «שמור פרופיל» — יישמרו יחד שם הבית (אם שינית), שם התצוגה והתמונה.
+              </p>
               <div className="row-actions" style={{ marginTop: 8 }}>
                 <button
                   type="button"

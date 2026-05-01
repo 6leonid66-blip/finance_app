@@ -18,7 +18,7 @@ import { uploadProfileImage } from './lib/profileStorage'
 import { analyzeSpokenExpenseWithGemini } from './lib/geminiReceipt'
 import { installmentProgressLabel } from './lib/recurringProgress'
 import { monthValueToFirstDay } from './lib/month'
-import { householdMemberUsernameLabel } from './lib/displayUser'
+import { memberProfileDisplayName } from './lib/displayUser'
 import { getSpeechRecognitionCtor } from './lib/speech'
 import type { SpeechRecognitionLike } from './lib/speech'
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from './constants/categories'
@@ -302,7 +302,7 @@ function App() {
     }
     const list: HouseholdMemberBrief[] = userIds.map((uid) => {
       const p = profs?.find((x) => x.id === uid)
-      const label = householdMemberUsernameLabel(p?.email, uid)
+      const label = memberProfileDisplayName(p?.full_name, p?.email, uid)
       return {
         userId: uid,
         displayName: label,
@@ -1092,6 +1092,9 @@ function App() {
         avatar_path: trimmedAvatarPath || null,
         avatar_url: trimmedAvatar || null,
       }))
+      if (household?.id) {
+        void refreshHouseholdMembers(household.id)
+      }
       return { ok: true, message: 'הפרופיל נשמר בהצלחה' }
     } catch (error) {
       return { ok: false, message: `שמירת פרופיל נכשלה: ${describeError(error)}` }
