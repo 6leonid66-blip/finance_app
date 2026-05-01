@@ -277,6 +277,17 @@ function App() {
     return window.location.origin
   }
 
+  /** RPC (מיגרציה 302300): יוצר חשבון אישי חסר לכל חבר בית — בלי זה unique (household,name) חסם שני "חשבון שלי". */
+  async function rpcEnsureAllHouseholdPersonalAccounts(householdId: string) {
+    if (!supabase) return
+    const { error } = await supabase.rpc('ensure_personal_accounts_for_household', {
+      p_household_id: householdId,
+    })
+    if (error && error.code !== '42883') {
+      console.warn('ensure_personal_accounts_for_household:', error.message)
+    }
+  }
+
   async function ensureUserAccount(householdId: string, userId: string) {
     if (!supabase) return
     const { data: ownAccount, error: ownErr } = await supabase
@@ -349,6 +360,7 @@ function App() {
           .single()
         if (existingHouseholdError) throw existingHouseholdError
         setHousehold(householdRow as Household)
+        await rpcEnsureAllHouseholdPersonalAccounts((householdRow as Household).id)
         await ensureUserAccount((householdRow as Household).id, userId)
         void refreshHouseholdMembers((householdRow as Household).id)
         return
@@ -368,6 +380,7 @@ function App() {
 
       if (!resolvedId) throw new Error('לא הצלחתי ליצור בית חדש')
       setHousehold({ id: resolvedId, name: resolvedName ?? 'הבית שלנו' })
+      await rpcEnsureAllHouseholdPersonalAccounts(resolvedId)
       await ensureUserAccount(resolvedId, userId)
       void refreshHouseholdMembers(resolvedId)
       setStatusMessage('נוצר בית חדש. אפשר להתחיל.')
@@ -411,6 +424,8 @@ function App() {
     }
 
     try {
+      await rpcEnsureAllHouseholdPersonalAccounts(householdId)
+
       const { error: autoPostError } = await supabase.rpc('ensure_auto_post_transactions_from_templates', {
         p_household: householdId,
         p_month: monthDate,
@@ -922,6 +937,16 @@ function App() {
     if (household) void loadMonthlyData(household.id, selectedMonth)
   }
 
+  const handleTransactionSaved = async (savedMonth: string) => {
+    if (!household) return
+    const key = savedMonth.slice(0, 7)
+    if (key !== selectedMonth) {
+      setSelectedMonth(key)
+      return
+    }
+    await loadMonthlyData(household.id, selectedMonth)
+  }
+
   // After a recurring template change, re-run auto-post for:
   // - the month the user is viewing in the picker (so transactions match that screen)
   // - the calendar "today" month when it differs (so the live month stays in sync too).
@@ -1182,6 +1207,7 @@ function App() {
                 entries={scopedEntries}
                 historyEntries={scopedHistoryEntries}
                 accounts={accounts}
+                householdId={household.id}
                 householdMembers={householdMembers}
                 selectedAccountId={selectedAccountId}
                 onSelectAccount={handleAccountSelectFromPicker}
@@ -1191,6 +1217,9 @@ function App() {
                 currentUserId={sessionUserId ?? ''}
                 onSaveProfile={saveProfile}
                 onUploadProfilePhoto={uploadProfilePhoto}
+                onHouseholdJoined={() => {
+                  if (sessionUserId) void bootstrapUserData(sessionUserId, sessionUserEmail)
+                }}
                 scopeMode={scopeMode}
                 onScopeModeChange={changeScopeMode}
               />
@@ -1312,14 +1341,13 @@ function App() {
             onClose={closeFabSheet}
             householdId={household.id}
             sessionUserId={sessionUserId}
-            selectedMonth={selectedMonth}
             householdMembers={householdMembers}
             accounts={accounts}
             selectedAccountId={selectedAccountId}
             onSelectedAccountIdChange={handleAccountSelectFromPicker}
             initialType={sheetType}
             prefill={sheetPrefill}
-            onSaved={refreshMonth}
+            onSaved={handleTransactionSaved}
           />
         </>
       ) : null}

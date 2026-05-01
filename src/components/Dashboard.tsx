@@ -4,6 +4,7 @@ import { MonthValuePicker } from './MonthValuePicker'
 import { generateHouseholdAdviceWithGemini } from '../lib/geminiReceipt'
 import { colorForCategory } from '../lib/categoryColors'
 import { householdAccountPickLabel } from '../lib/accountPickLabel'
+import { supabase } from '../supabase'
 
 const ILS_FORMATTER = new Intl.NumberFormat('he-IL', { maximumFractionDigits: 0 })
 
@@ -28,6 +29,7 @@ type DashboardProps = {
   historyEntries: Array<{ type: 'income' | 'expense'; amount: number; occurred_on: string; planned: boolean }>
   /** כל החשבונות בבית (למתג בחירה). בסעיף "חלוקה לפי חשבונות" בתצוגה אישית — רק של המשתמש. */
   accounts: FinancialAccount[]
+  householdId: string
   householdMembers: HouseholdMemberBrief[]
   selectedAccountId: string
   onSelectAccount: (id: string) => void
@@ -39,6 +41,8 @@ type DashboardProps = {
   onUploadProfilePhoto: (
     file: File,
   ) => Promise<{ ok: boolean; message: string; avatar_path?: string; avatar_url?: string }>
+  /** After הצטרפות לבית אחר — טעינה מחדש של בית וחשבונות. */
+  onHouseholdJoined: () => void
   scopeMode: 'personal' | 'shared'
   onScopeModeChange: (scope: 'personal' | 'shared') => void
 }
@@ -63,6 +67,7 @@ export function Dashboard({
   entries,
   historyEntries,
   accounts,
+  householdId,
   householdMembers,
   selectedAccountId,
   onSelectAccount,
@@ -72,6 +77,7 @@ export function Dashboard({
   profile,
   onSaveProfile,
   onUploadProfilePhoto,
+  onHouseholdJoined,
   scopeMode,
   onScopeModeChange,
 }: DashboardProps) {
@@ -108,6 +114,10 @@ export function Dashboard({
   const [profileMessage, setProfileMessage] = useState<string | null>(null)
   const [advisorLoading, setAdvisorLoading] = useState(false)
   const [advisorText, setAdvisorText] = useState<string | null>(null)
+  const [joinCodeInput, setJoinCodeInput] = useState('')
+  const [joinBusy, setJoinBusy] = useState(false)
+  const [joinMessage, setJoinMessage] = useState<string | null>(null)
+  const [copyJoinHint, setCopyJoinHint] = useState<string | null>(null)
 
   const profileInitials = useMemo(() => {
     const source = (profile.full_name?.trim() || profile.email?.trim() || 'U').replace(/\s+/g, ' ')
@@ -488,6 +498,9 @@ export function Dashboard({
                 setProfileAvatarUrl(profile.avatar_url ?? '')
                 setProfileAvatarPath(profile.avatar_path ?? '')
                 setProfileMessage(null)
+                setJoinCodeInput('')
+                setJoinMessage(null)
+                setCopyJoinHint(null)
                 setShowProfile(true)
               }}
             >
@@ -799,6 +812,80 @@ export function Dashboard({
               <span>או העלאת תמונה ישירות ל-Supabase</span>
               <input type="file" accept="image/*" onChange={(e) => void onPickProfilePhoto(e.target.files?.[0])} />
             </label>
+
+            <hr style={{ margin: '16px 0', border: 'none', borderTop: '1px solid rgba(0,0,0,0.08)' }} />
+            <h3 className="card-heading" style={{ fontSize: '1rem', marginBottom: 8 }}>
+              משפחה — קוד הצטרפות
+            </h3>
+            <p className="muted small">
+              שלחו לבן/בת זוג את הקוד כדי שיצטרפו לאותו בית ויראו חשבונות משותפים ואישיים (לפי תצוגה). הקוד הוא מזהה
+              הבית.
+            </p>
+            <div className="row-actions" style={{ marginTop: 8, flexWrap: 'wrap', gap: 8 }}>
+              <code className="ltr-input" style={{ flex: 1, minWidth: 0, padding: '8px 10px', wordBreak: 'break-all' }}>
+                {householdId}
+              </code>
+              <button
+                type="button"
+                className="btn-secondary btn-xs"
+                onClick={() => {
+                  void navigator.clipboard.writeText(householdId).then(
+                    () => {
+                      setCopyJoinHint('הועתק ללוח')
+                      window.setTimeout(() => setCopyJoinHint(null), 2000)
+                    },
+                    () => setCopyJoinHint('העתקה נכשלה — סמן והעתק ידנית'),
+                  )
+                }}
+              >
+                העתק קוד
+              </button>
+            </div>
+            {copyJoinHint ? <p className="inline-status">{copyJoinHint}</p> : null}
+
+            <label className="stack" style={{ marginTop: 12 }}>
+              <span>הצטרפות לבית אחר (הדבק את הקוד שקיבלת)</span>
+              <input
+                className="ltr-input"
+                value={joinCodeInput}
+                onChange={(e) => {
+                  setJoinCodeInput(e.target.value.trim())
+                  setJoinMessage(null)
+                }}
+                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                autoComplete="off"
+              />
+            </label>
+            <button
+              type="button"
+              className="btn-secondary btn-xs"
+              style={{ marginTop: 8 }}
+              disabled={joinBusy || !joinCodeInput.trim()}
+              onClick={() => {
+                if (!supabase) {
+                  setJoinMessage('אין חיבור לשרת')
+                  return
+                }
+                setJoinBusy(true)
+                setJoinMessage(null)
+                void supabase
+                  .rpc('join_household_by_code', { p_household_code: joinCodeInput.trim() })
+                  .then(({ error }) => {
+                    setJoinBusy(false)
+                    if (error) {
+                      setJoinMessage(error.message)
+                      return
+                    }
+                    setJoinMessage('הצטרפת בהצלחה. טוען את הבית החדש…')
+                    onHouseholdJoined()
+                    window.setTimeout(() => setShowProfile(false), 900)
+                  })
+              }}
+            >
+              {joinBusy ? 'מצטרף…' : 'הצטרף לבית זה'}
+            </button>
+            {joinMessage ? <p className="inline-status">{joinMessage}</p> : null}
+
             <div className="row-actions" style={{ marginTop: 10 }}>
               <button type="button" className="btn-primary btn-xs" disabled={profileSaving} onClick={() => void submitProfile()}>
                 {profileSaving ? 'שומר…' : 'שמור פרופיל'}

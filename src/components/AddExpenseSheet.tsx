@@ -8,6 +8,8 @@ import { uploadReceiptAttachment } from '../lib/receiptStorage'
 import { getSpeechRecognitionCtor } from '../lib/speech'
 import type { SpeechRecognitionLike } from '../lib/speech'
 import { householdAccountPickLabel } from '../lib/accountPickLabel'
+import { MonthValuePicker } from './MonthValuePicker'
+import { formatLocalYmd, getLocalMonthValue } from '../lib/month'
 
 export type AddExpensePrefill = {
   amount?: string
@@ -21,14 +23,14 @@ type AddExpenseSheetProps = {
   onClose: () => void
   householdId: string
   sessionUserId: string
-  selectedMonth: string
   householdMembers: HouseholdMemberBrief[]
   accounts: FinancialAccount[]
   selectedAccountId: string
   onSelectedAccountIdChange: (id: string) => void
   initialType?: EntryType
   prefill?: AddExpensePrefill
-  onSaved: () => void
+  /** Called with the calendar month (YYYY-MM) the transaction was stored under. */
+  onSaved: (savedMonth: string) => void | Promise<void>
 }
 
 export function AddExpenseSheet({
@@ -36,7 +38,6 @@ export function AddExpenseSheet({
   onClose,
   householdId,
   sessionUserId,
-  selectedMonth,
   householdMembers,
   accounts,
   selectedAccountId,
@@ -56,6 +57,8 @@ export function AddExpenseSheet({
   const [recordingVoice, setRecordingVoice] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  /** Month the row belongs to; reset to current calendar month each time the sheet opens. */
+  const [entryMonth, setEntryMonth] = useState(() => getLocalMonthValue())
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null)
   const spokenTextRef = useRef('')
 
@@ -73,6 +76,7 @@ export function AddExpenseSheet({
     setReceiptFile(null)
     setReceiptPreview(null)
     setError(null)
+    setEntryMonth(getLocalMonthValue())
 
     const baseCategoryList = initialType === 'expense' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES
     if (prefill?.category && (baseCategoryList as readonly string[]).includes(prefill.category)) {
@@ -106,10 +110,10 @@ export function AddExpenseSheet({
       setError('הזן סכום חיובי')
       return
     }
-    const [y, m] = selectedMonth.split('-').map(Number)
+    const [y, m] = entryMonth.split('-').map(Number)
     const today = new Date()
     const defaultDay = new Date(y, m - 1, Math.min(today.getDate(), new Date(y, m, 0).getDate()))
-    const occurredOn = defaultDay.toISOString().slice(0, 10)
+    const occurredOn = formatLocalYmd(defaultDay)
 
     setSaving(true)
     setError(null)
@@ -145,7 +149,7 @@ export function AddExpenseSheet({
       setReceiptFile(null)
       if (receiptPreview) URL.revokeObjectURL(receiptPreview)
       setReceiptPreview(null)
-      onSaved()
+      await Promise.resolve(onSaved(entryMonth.slice(0, 7)))
       onClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'שגיאה בשמירה')
@@ -312,6 +316,14 @@ export function AddExpenseSheet({
               הכנסה
             </button>
           </div>
+
+          <label>
+            חודש של התנועה
+            <MonthValuePicker value={entryMonth} onChange={setEntryMonth} className="sheet-month-picker" />
+            <span className="muted small" style={{ display: 'block', marginTop: 4 }}>
+              ברירת המחדל: החודש הנוכחי בפתיחת המסך. אפשר לשנות אם ההוצאה או ההכנסה שייכות לחודש אחר.
+            </span>
+          </label>
 
           <label>
             חשבון

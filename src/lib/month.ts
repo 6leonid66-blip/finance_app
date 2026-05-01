@@ -2,6 +2,16 @@
 
 const pad2 = (n: number) => String(n).padStart(2, '0')
 
+/** Local calendar month key for `d` (no UTC shift). */
+export function getLocalMonthValue(d = new Date()) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`
+}
+
+/** Local calendar date as YYYY-MM-DD (do not use toISOString — it shifts the day in non-UTC zones). */
+export function formatLocalYmd(d: Date) {
+  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+}
+
 /** First calendar day YYYY-MM-01 — never uses toISOString() (avoids UTC shifting the calendar day vs local). */
 export function monthValueToFirstDay(monthValue: string) {
   const key = monthValue.trim().slice(0, 7)
