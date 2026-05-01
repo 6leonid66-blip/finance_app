@@ -116,7 +116,13 @@ export function ReconcileView({
       .filter((a) => !a.is_shared && a.owner_user_id === sessionUserId)
       .map((a) => a.id)
     const householdWideAccountIds = accounts.map((a) => a.id)
-    const accountIds = scopeMode === 'shared' ? householdWideAccountIds : personalAccountIds
+
+    if (scopeMode === 'personal' && !personalAccountIds.length) {
+      return []
+    }
+    if (scopeMode === 'shared' && !householdWideAccountIds.length) {
+      return []
+    }
 
     let query = supabase
       .from('transactions')
@@ -128,8 +134,12 @@ export function ReconcileView({
       .lte('occurred_on', dateRange.endDate)
       .order('occurred_on', { ascending: true })
 
-    if (accountIds.length) {
-      query = query.in('account_id', accountIds)
+    if (scopeMode === 'shared') {
+      const ids = householdWideAccountIds.join(',')
+      query = query.or(`account_id.in.(${ids}),account_id.is.null`)
+    } else {
+      const ids = personalAccountIds.join(',')
+      query = query.or(`account_id.in.(${ids}),and(account_id.is.null,owner_id.eq.${sessionUserId})`)
     }
 
     const { data, error: qErr } = await query

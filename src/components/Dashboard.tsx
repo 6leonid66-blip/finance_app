@@ -5,6 +5,7 @@ import { generateHouseholdAdviceWithGemini } from '../lib/geminiReceipt'
 import { colorForCategory } from '../lib/categoryColors'
 import { householdAccountPickLabel } from '../lib/accountPickLabel'
 import { supabase } from '../supabase'
+import { householdMemberUsernameLabel, usernameFromEmail } from '../lib/displayUser'
 
 const ILS_FORMATTER = new Intl.NumberFormat('he-IL', { maximumFractionDigits: 0 })
 
@@ -132,7 +133,7 @@ export function Dashboard({
         id: m.userId,
         name:
           m.userId === currentUserId
-            ? profile.full_name?.trim() || profile.email?.split('@')[0]?.trim() || m.displayName
+            ? usernameFromEmail(profile.email) || householdMemberUsernameLabel(profile.email, currentUserId, 'אני')
             : m.displayName,
         avatar_url: m.userId === currentUserId ? (profile.avatar_url ?? m.avatarUrl) : m.avatarUrl,
       }))
@@ -143,19 +144,23 @@ export function Dashboard({
       if (!entry.owner_id) return
       if (!members.has(entry.owner_id)) {
         members.set(entry.owner_id, {
-          name: entry.owner_name?.trim() || entry.owner_email?.split('@')[0]?.trim() || 'חבר בית',
+          name:
+            usernameFromEmail(entry.owner_email) ||
+            householdMemberUsernameLabel(entry.owner_email, entry.owner_id),
           avatar_url: entry.owner_avatar_url ?? null,
         })
       }
     })
     if (!members.has(currentUserId)) {
       members.set(currentUserId, {
-        name: profile.full_name?.trim() || profile.email?.split('@')[0]?.trim() || 'אני',
+        name:
+          usernameFromEmail(profile.email) ||
+          householdMemberUsernameLabel(profile.email, currentUserId, 'אני'),
         avatar_url: profile.avatar_url ?? null,
       })
     }
     return Array.from(members.entries()).map(([id, value]) => ({ id, ...value }))
-  }, [householdMembers, entries, currentUserId, profile.full_name, profile.email, profile.avatar_url])
+  }, [householdMembers, entries, currentUserId, profile.email, profile.avatar_url])
 
   useEffect(() => {
     const onBeforeInstall = (event: Event) => {

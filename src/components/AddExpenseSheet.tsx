@@ -110,6 +110,10 @@ export function AddExpenseSheet({
       setError('הזן סכום חיובי')
       return
     }
+    if (!selectedAccountId?.trim()) {
+      setError('בחר חשבון לפני שמירה')
+      return
+    }
     const [y, m] = entryMonth.split('-').map(Number)
     const today = new Date()
     const defaultDay = new Date(y, m - 1, Math.min(today.getDate(), new Date(y, m, 0).getDate()))
