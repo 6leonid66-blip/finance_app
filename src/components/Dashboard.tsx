@@ -46,6 +46,8 @@ type DashboardProps = {
   onHouseholdJoined: () => void
   scopeMode: 'personal' | 'shared'
   onScopeModeChange: (scope: 'personal' | 'shared') => void
+  householdName: string
+  onRenameHousehold: (name: string) => Promise<{ ok: boolean; message: string }>
 }
 
 function pct(actual: number, planned: number) {
@@ -81,6 +83,8 @@ export function Dashboard({
   onHouseholdJoined,
   scopeMode,
   onScopeModeChange,
+  householdName,
+  onRenameHousehold,
 }: DashboardProps) {
   const ua = typeof navigator !== 'undefined' ? navigator.userAgent : ''
   const isIos = /iphone|ipad|ipod/i.test(ua)
@@ -119,6 +123,9 @@ export function Dashboard({
   const [joinBusy, setJoinBusy] = useState(false)
   const [joinMessage, setJoinMessage] = useState<string | null>(null)
   const [copyJoinHint, setCopyJoinHint] = useState<string | null>(null)
+  const [familyNameDraft, setFamilyNameDraft] = useState(householdName)
+  const [familyNameSaving, setFamilyNameSaving] = useState(false)
+  const [familyNameMessage, setFamilyNameMessage] = useState<string | null>(null)
 
   const profileInitials = useMemo(() => {
     const source = (profile.full_name?.trim() || profile.email?.trim() || 'U').replace(/\s+/g, ' ')
@@ -491,7 +498,7 @@ export function Dashboard({
       <section className="dashboard-hero card">
         <div className="dashboard-top">
           <div>
-            <h1 className="dashboard-title">הבית שלנו</h1>
+            <h1 className="dashboard-title">{householdName}</h1>
             <p className="dashboard-sub">סיכום חודשי — תחזית מול ביצוע</p>
           </div>
           <div className="row-actions">
@@ -506,6 +513,8 @@ export function Dashboard({
                 setJoinCodeInput('')
                 setJoinMessage(null)
                 setCopyJoinHint(null)
+                setFamilyNameDraft(householdName)
+                setFamilyNameMessage(null)
                 setShowProfile(true)
               }}
             >
@@ -523,7 +532,15 @@ export function Dashboard({
         </div>
       </section>
       <section className="card family-strip">
-        <strong>המשפחה שלנו</strong>
+        <div className="family-strip-heading">
+          <strong className="family-strip-title">{householdName}</strong>
+          <p className="muted small family-strip-sub">
+            {householdMembers.length > 1
+              ? `${householdMembers.length} משתמשים בבית · במצב «משותף» רואים את כל החשבונות והתנועות של המשפחה`
+              : 'בית אישי — ב«הפרופיל שלי» יש קוד הזמנה לשיתוף עם בן/בת הזוג'}
+          </p>
+        </div>
+        <div className="family-members-label muted small">חברי הבית</div>
         <div className="family-members">
           {familyMembers.map((member) => (
             <div key={member.id} className="family-member">
@@ -788,6 +805,128 @@ export function Dashboard({
         <div className="modal-backdrop" onClick={() => setShowProfile(false)}>
           <article className="card card-form modal-card" onClick={(e) => e.stopPropagation()}>
             <h2 className="card-heading">הפרופיל שלי</h2>
+
+            <section className="household-settings card" style={{ marginTop: 12, padding: 12 }}>
+              <h3 className="card-heading" style={{ fontSize: '1rem', margin: '0 0 8px' }}>
+                בית משפחתי
+              </h3>
+              <p className="muted small" style={{ margin: '0 0 10px' }}>
+                כל חבר בית רואה את אותו שם. העתיקו את קוד ההזמנה למטה ושלחו למשתמש אחר — אחרי שהוא מדביק את
+                הקוד ב«הצטרפות לבית אחר», שני החשבונות עובדים כמשפחה (אישי ומשותף).
+              </p>
+              <label className="stack">
+                <span>שם הבית / המשפחה</span>
+                <input
+                  value={familyNameDraft}
+                  onChange={(e) => {
+                    setFamilyNameDraft(e.target.value)
+                    setFamilyNameMessage(null)
+                  }}
+                  placeholder="למשל: משפחת כהן"
+                  maxLength={120}
+                />
+              </label>
+              <div className="row-actions" style={{ marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="btn-secondary btn-xs"
+                  disabled={familyNameSaving || !familyNameDraft.trim() || familyNameDraft.trim() === householdName}
+                  onClick={() => {
+                    setFamilyNameSaving(true)
+                    setFamilyNameMessage(null)
+                    void onRenameHousehold(familyNameDraft.trim()).then((r) => {
+                      setFamilyNameSaving(false)
+                      setFamilyNameMessage(r.message)
+                    })
+                  }}
+                >
+                  {familyNameSaving ? 'שומר…' : 'שמור שם בית'}
+                </button>
+              </div>
+              {familyNameMessage ? (
+                <p
+                  className="inline-status"
+                  style={
+                    familyNameMessage.includes('נשמר')
+                      ? undefined
+                      : { color: 'var(--danger, #b91c1c)', marginTop: 8 }
+                  }
+                >
+                  {familyNameMessage}
+                </p>
+              ) : null}
+
+              <p className="muted small" style={{ margin: '14px 0 6px' }}>
+                <strong>קוד הזמנה</strong> — מזהה הבית (העתקה לבן/בת הזוג):
+              </p>
+              <div className="row-actions" style={{ flexWrap: 'wrap', gap: 8 }}>
+                <code className="ltr-input" style={{ flex: 1, minWidth: 0, padding: '8px 10px', wordBreak: 'break-all' }}>
+                  {householdId}
+                </code>
+                <button
+                  type="button"
+                  className="btn-secondary btn-xs"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(householdId).then(
+                      () => {
+                        setCopyJoinHint('הועתק ללוח')
+                        window.setTimeout(() => setCopyJoinHint(null), 2000)
+                      },
+                      () => setCopyJoinHint('העתקה נכשלה — סמן והעתק ידנית'),
+                    )
+                  }}
+                >
+                  העתק קוד
+                </button>
+              </div>
+              {copyJoinHint ? <p className="inline-status">{copyJoinHint}</p> : null}
+
+              <label className="stack" style={{ marginTop: 12 }}>
+                <span>הצטרפות לבית אחר (הדבק את הקוד שקיבלת)</span>
+                <input
+                  className="ltr-input"
+                  value={joinCodeInput}
+                  onChange={(e) => {
+                    setJoinCodeInput(e.target.value.trim())
+                    setJoinMessage(null)
+                  }}
+                  placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                  autoComplete="off"
+                />
+              </label>
+              <button
+                type="button"
+                className="btn-secondary btn-xs"
+                style={{ marginTop: 8 }}
+                disabled={joinBusy || !joinCodeInput.trim()}
+                onClick={() => {
+                  if (!supabase) {
+                    setJoinMessage('אין חיבור לשרת')
+                    return
+                  }
+                  setJoinBusy(true)
+                  setJoinMessage(null)
+                  void supabase
+                    .rpc('join_household_by_code', { p_household_code: joinCodeInput.trim() })
+                    .then(({ error }) => {
+                      setJoinBusy(false)
+                      if (error) {
+                        setJoinMessage(error.message)
+                        return
+                      }
+                      setJoinMessage('הצטרפת בהצלחה. טוען את הבית החדש…')
+                      onHouseholdJoined()
+                      window.setTimeout(() => setShowProfile(false), 900)
+                    })
+                }}
+              >
+                {joinBusy ? 'מצטרף…' : 'הצטרף לבית זה'}
+              </button>
+              {joinMessage ? <p className="inline-status">{joinMessage}</p> : null}
+            </section>
+
+            <hr style={{ margin: '16px 0', border: 'none', borderTop: '1px solid rgba(0,0,0,0.08)' }} />
+
             <div className="profile-modal-preview">
               {profileAvatarUrl.trim() ? (
                 <img src={profileAvatarUrl.trim()} alt="avatar preview" className="profile-modal-avatar" />
@@ -817,79 +956,6 @@ export function Dashboard({
               <span>או העלאת תמונה ישירות ל-Supabase</span>
               <input type="file" accept="image/*" onChange={(e) => void onPickProfilePhoto(e.target.files?.[0])} />
             </label>
-
-            <hr style={{ margin: '16px 0', border: 'none', borderTop: '1px solid rgba(0,0,0,0.08)' }} />
-            <h3 className="card-heading" style={{ fontSize: '1rem', marginBottom: 8 }}>
-              משפחה — קוד הצטרפות
-            </h3>
-            <p className="muted small">
-              שלחו לבן/בת זוג את הקוד כדי שיצטרפו לאותו בית ויראו חשבונות משותפים ואישיים (לפי תצוגה). הקוד הוא מזהה
-              הבית.
-            </p>
-            <div className="row-actions" style={{ marginTop: 8, flexWrap: 'wrap', gap: 8 }}>
-              <code className="ltr-input" style={{ flex: 1, minWidth: 0, padding: '8px 10px', wordBreak: 'break-all' }}>
-                {householdId}
-              </code>
-              <button
-                type="button"
-                className="btn-secondary btn-xs"
-                onClick={() => {
-                  void navigator.clipboard.writeText(householdId).then(
-                    () => {
-                      setCopyJoinHint('הועתק ללוח')
-                      window.setTimeout(() => setCopyJoinHint(null), 2000)
-                    },
-                    () => setCopyJoinHint('העתקה נכשלה — סמן והעתק ידנית'),
-                  )
-                }}
-              >
-                העתק קוד
-              </button>
-            </div>
-            {copyJoinHint ? <p className="inline-status">{copyJoinHint}</p> : null}
-
-            <label className="stack" style={{ marginTop: 12 }}>
-              <span>הצטרפות לבית אחר (הדבק את הקוד שקיבלת)</span>
-              <input
-                className="ltr-input"
-                value={joinCodeInput}
-                onChange={(e) => {
-                  setJoinCodeInput(e.target.value.trim())
-                  setJoinMessage(null)
-                }}
-                placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                autoComplete="off"
-              />
-            </label>
-            <button
-              type="button"
-              className="btn-secondary btn-xs"
-              style={{ marginTop: 8 }}
-              disabled={joinBusy || !joinCodeInput.trim()}
-              onClick={() => {
-                if (!supabase) {
-                  setJoinMessage('אין חיבור לשרת')
-                  return
-                }
-                setJoinBusy(true)
-                setJoinMessage(null)
-                void supabase
-                  .rpc('join_household_by_code', { p_household_code: joinCodeInput.trim() })
-                  .then(({ error }) => {
-                    setJoinBusy(false)
-                    if (error) {
-                      setJoinMessage(error.message)
-                      return
-                    }
-                    setJoinMessage('הצטרפת בהצלחה. טוען את הבית החדש…')
-                    onHouseholdJoined()
-                    window.setTimeout(() => setShowProfile(false), 900)
-                  })
-              }}
-            >
-              {joinBusy ? 'מצטרף…' : 'הצטרף לבית זה'}
-            </button>
-            {joinMessage ? <p className="inline-status">{joinMessage}</p> : null}
 
             <div className="row-actions" style={{ marginTop: 10 }}>
               <button type="button" className="btn-primary btn-xs" disabled={profileSaving} onClick={() => void submitProfile()}>

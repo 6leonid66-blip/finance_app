@@ -1098,6 +1098,23 @@ function App() {
     }
   }
 
+  async function renameHousehold(name: string): Promise<{ ok: boolean; message: string }> {
+    if (!supabase || !household) return { ok: false, message: 'אין חיבור לשרת' }
+    const trimmed = name.trim()
+    if (!trimmed) return { ok: false, message: 'הזן שם משפחה / בית' }
+    try {
+      const { error } = await supabase.rpc('rename_household', {
+        p_household_id: household.id,
+        p_name: trimmed,
+      })
+      if (error) throw error
+      setHousehold((h) => (h ? { ...h, name: trimmed } : h))
+      return { ok: true, message: 'שם הבית נשמר. כל חברי הבית יראו אותו.' }
+    } catch (error) {
+      return { ok: false, message: describeError(error) }
+    }
+  }
+
   const showFab = screen === 'dashboard' || screen === 'transactions'
 
   const compactLedger = useMemo(() => {
@@ -1232,7 +1249,18 @@ function App() {
         ) : null}
 
         {sessionUserId && household && !passwordRecoveryMode ? (
-          <div key={screen} className="screen-fade">
+          <>
+            <header className="app-household-bar">
+              <div className="app-household-bar-inner">
+                <span className="app-household-title">{household.name}</span>
+                <span className="app-household-meta muted small">
+                  {householdMembers.length > 1
+                    ? `${householdMembers.length} חברי בית · נתונים משותפים במצב «משותף»`
+                    : 'בית משפחתי — הזמינו בן/בת זוג מ«הפרופיל שלי» עם קוד ההזמנה'}
+                </span>
+              </div>
+            </header>
+            <div key={screen} className="screen-fade">
             {recurringRpcError ? (
               <p className="banner-msg banner-msg-warn">
                 לא סונכרנו תנועות מהקבוע לחודש הנוכחי: {recurringRpcError}{' '}
@@ -1267,6 +1295,8 @@ function App() {
                 }}
                 scopeMode={scopeForData}
                 onScopeModeChange={changeScopeMode}
+                householdName={household.name}
+                onRenameHousehold={renameHousehold}
               />
             ) : null}
 
@@ -1324,6 +1354,7 @@ function App() {
             ) : null}
 
           </div>
+          </>
         ) : null}
 
         {sessionUserId && !household && !passwordRecoveryMode ? (

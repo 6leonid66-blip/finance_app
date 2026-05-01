@@ -258,6 +258,51 @@ p .thinking-dots,
   overflow-x: clip;
 }
 
+.app-household-bar {
+  max-width: 720px;
+  margin: 0 auto;
+  width: 100%;
+  padding: 0 12px;
+}
+
+.app-household-bar-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 10px;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.app-household-title {
+  font-weight: 700;
+  font-size: 1.08rem;
+  line-height: 1.25;
+}
+
+.app-household-meta {
+  line-height: 1.4;
+  display: block;
+}
+
+.family-strip-heading {
+  margin-bottom: 4px;
+}
+
+.family-strip-title {
+  font-size: 1.05rem;
+  display: block;
+}
+
+.family-strip-sub {
+  margin: 6px 0 0;
+  line-height: 1.35;
+}
+
+.family-members-label {
+  margin-top: 4px;
+}
+
 .muted {
   color: var(--muted);
   font-size: 0.9rem;
