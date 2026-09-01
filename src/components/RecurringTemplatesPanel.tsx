@@ -12,7 +12,6 @@ import { templateAppliesToMonth, templateAmount } from '../lib/forecast'
 type RecurringTemplatesPanelProps = {
   householdId: string
   selectedMonth: string
-  onMonthChange: (month: string) => void
   onTemplatesChanged: () => void
   members: HouseholdMemberBrief[]
   currentUserId: string
@@ -21,7 +20,6 @@ type RecurringTemplatesPanelProps = {
 export function RecurringTemplatesPanel({
   householdId,
   selectedMonth,
-  onMonthChange,
   onTemplatesChanged,
   members,
   currentUserId,
@@ -320,7 +318,6 @@ export function RecurringTemplatesPanel({
     <div className="screen-pad">
       <div className="screen-head">
         <h2 className="screen-title">קבועים</h2>
-        <MonthValuePicker value={selectedMonth} onChange={onMonthChange} compact />
       </div>
       <p className="panel-intro muted">
         קובעים פעם אחת — נרשם אוטומטית בחודש הזה ובחודשים הבאים. אפשר לבטל לחודש או לתמיד.

@@ -251,11 +251,40 @@ p .thinking-dots,
 
 .app-main {
   flex: 1;
-  padding: 12px 12px 86px;
+  padding: 12px 12px 96px;
   max-width: 720px;
   margin: 0 auto;
   width: 100%;
   overflow-x: clip;
+}
+
+.app-chrome {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  max-width: 720px;
+  margin: 0 auto 8px;
+  width: 100%;
+  padding: calc(8px + env(safe-area-inset-top)) 12px 10px;
+  background: var(--glass);
+  backdrop-filter: saturate(160%) blur(18px);
+  -webkit-backdrop-filter: saturate(160%) blur(18px);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.app-chrome-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.app-chrome-top .app-household-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .app-household-bar {
@@ -1421,10 +1450,12 @@ tr.duplicate-row > td:last-child {
   max-width: 720px;
   margin-inline: auto;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: 1fr 1fr auto 1fr;
   gap: 0;
-  background: var(--card);
-  border-top: 1px solid var(--border);
+  background: var(--glass);
+  backdrop-filter: saturate(160%) blur(18px);
+  -webkit-backdrop-filter: saturate(160%) blur(18px);
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
   padding: 8px 4px calc(8px + env(safe-area-inset-bottom));
   z-index: 30;
 }
@@ -2672,7 +2703,7 @@ input[type='month'] {
 
 .tx-sticky-totals {
   position: sticky;
-  bottom: calc(64px + env(safe-area-inset-bottom));
+  bottom: calc(72px + env(safe-area-inset-bottom));
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 6px;
@@ -2892,4 +2923,163 @@ input[type='month'] {
 
 .btn-xs {
   min-height: 36px;
+}
+
+.month-chrome {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.month-chrome-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  background: color-mix(in srgb, var(--card) 80%, transparent);
+  overflow: hidden;
+}
+
+.month-chrome-label {
+  font-size: 0.86rem;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.month-chrome-label::after {
+  content: ' ▾';
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.month-chrome-select select {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+.bottom-nav-add {
+  width: 48px;
+  height: 48px;
+  margin: 0 6px;
+  border: none;
+  border-radius: 50%;
+  background: var(--primary);
+  color: #fff;
+  font-size: 1.6rem;
+  line-height: 1;
+  font-weight: 500;
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--primary) 40%, transparent);
+  cursor: pointer;
+  align-self: center;
+}
+
+.add-chooser {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(84px + env(safe-area-inset-bottom));
+  width: min(360px, calc(100% - 32px));
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 20px;
+  background: var(--glass);
+  backdrop-filter: saturate(160%) blur(18px);
+  -webkit-backdrop-filter: saturate(160%) blur(18px);
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  z-index: 40;
+}
+
+.add-chooser-btn {
+  min-height: 52px;
+  border: none;
+  border-radius: 14px;
+  font-size: 1.05rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.add-chooser-expense {
+  background: color-mix(in srgb, var(--expense) 16%, var(--card));
+  color: var(--expense);
+}
+
+.add-chooser-income {
+  background: color-mix(in srgb, var(--income) 16%, var(--card));
+  color: var(--income);
+}
+
+.kpi-card.kpi-income {
+  border-color: color-mix(in srgb, var(--income) 28%, var(--border));
+}
+
+.kpi-card.kpi-expense {
+  border-color: color-mix(in srgb, var(--expense) 28%, var(--border));
+}
+
+.six-legend {
+  display: flex;
+  gap: 14px;
+  margin-bottom: 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.six-legend-income {
+  color: var(--income);
+}
+
+.six-legend-expense {
+  color: var(--expense);
+}
+
+.six-chart {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+  align-items: end;
+  height: 160px;
+}
+
+.six-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+  gap: 6px;
+}
+
+.six-bars {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 3px;
+}
+
+.six-bar {
+  width: 10px;
+  border-radius: 8px 8px 3px 3px;
+  min-height: 4px;
+}
+
+.six-bar-income {
+  background: var(--income);
+}
+
+.six-bar-expense {
+  background: var(--expense);
+}
+
+.six-label {
+  font-size: 0.68rem;
+  color: var(--muted);
 }

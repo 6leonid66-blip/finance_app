@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useCallback } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
 import './App.css'
 import { AddExpenseSheet } from './components/AddExpenseSheet'
@@ -8,7 +8,8 @@ import { BottomNav } from './components/BottomNav'
 import { Dashboard } from './components/Dashboard'
 import { RecurringTemplatesPanel } from './components/RecurringTemplatesPanel'
 import { TransactionsView } from './components/TransactionsView'
-import { MemberFilterBar } from './components/MemberFilterBar'
+import { AccountFilterBar } from './components/AccountFilterBar'
+import { MonthChrome } from './components/MonthChrome'
 import { SettingsSheet } from './components/SettingsSheet'
 import { isSupabaseConfigured, supabase } from './supabase'
 import type { AppScreen, FinanceEntry, FinancialAccount, Household, HouseholdMemberBrief, RecurringEndRule, RecurringTemplate, UserProfileView } from './types'
@@ -17,14 +18,14 @@ import { uploadProfileImage } from './lib/profileStorage'
 import { installmentProgressLabel } from './lib/recurringProgress'
 import { getLocalMonthValue, monthValueToFirstDay } from './lib/month'
 import { memberProfileDisplayName } from './lib/displayUser'
-import { filterEntriesByMemberScope, preferredAccountIdForScope, type MemberScope } from './lib/memberScope'
+import { defaultSharedAccountId, filterEntriesByAccount } from './lib/memberScope'
 
 function App() {
-  const [memberScope, setMemberScope] = useState<MemberScope>('all')
   const [screen, setScreen] = useState<AppScreen>('dashboard')
   const [sheetOpen, setSheetOpen] = useState(false)
   const [sheetType, setSheetType] = useState<'expense' | 'income'>('expense')
   const [sheetPrefill, setSheetPrefill] = useState<AddExpensePrefill>(null)
+  const [addChooserOpen, setAddChooserOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [sessionUserId, setSessionUserId] = useState<string | null>(null)
   const [sessionUserEmail, setSessionUserEmail] = useState<string | null>(null)
@@ -68,29 +69,14 @@ function App() {
   const [recurringRpcError, setRecurringRpcError] = useState<string | null>(null)
   const [householdMembers, setHouseholdMembers] = useState<HouseholdMemberBrief[]>([])
 
-  const changeMemberScope = useCallback(
-    (scope: MemberScope) => {
-      setMemberScope(scope)
-      const nextAccount = preferredAccountIdForScope(scope, accounts, sessionUserId)
-      if (nextAccount) setSelectedAccountId(nextAccount)
-    },
-    [accounts, sessionUserId],
-  )
-
   const scopedEntries = useMemo(
-    () => filterEntriesByMemberScope(entries, memberScope, accounts),
-    [entries, memberScope, accounts],
+    () => filterEntriesByAccount(entries, selectedAccountId),
+    [entries, selectedAccountId],
   )
   const scopedHistoryEntries = useMemo(
-    () => filterEntriesByMemberScope(historyEntries, memberScope, accounts),
-    [historyEntries, memberScope, accounts],
+    () => filterEntriesByAccount(historyEntries, selectedAccountId),
+    [historyEntries, selectedAccountId],
   )
-  const scopedTemplates = useMemo(() => {
-    if (memberScope === 'all') return templates
-    if (memberScope === 'shared') return templates.filter((t) => !t.owner_user_id)
-    const userId = memberScope.startsWith('user:') ? memberScope.slice(5) : null
-    return templates.filter((t) => t.owner_user_id === userId)
-  }, [templates, memberScope])
 
   const describeError = (error: unknown) => {
     if (error instanceof Error) return error.message
@@ -435,7 +421,9 @@ function App() {
 
       const accountRows = (accountData ?? []) as FinancialAccount[]
       setAccounts(accountRows)
-      setSelectedAccountId((prev) => prev || preferredAccountIdForScope(memberScope, accountRows, sessionUserId))
+      setSelectedAccountId((prev) =>
+        prev && accountRows.some((a) => a.id === prev) ? prev : defaultSharedAccountId(accountRows),
+      )
       const accountMap = new Map(accountRows.map((a) => [a.id, a.name]))
       const recurringById = new Map(
         recurringRows.map((row) => [
@@ -790,8 +778,6 @@ function App() {
     }
   }
 
-  const showFab = screen === 'dashboard' || screen === 'transactions'
-
   return (
     <div className="app-root" dir="rtl">
       <main className="app-main">
@@ -909,19 +895,21 @@ function App() {
 
         {sessionUserId && household && !passwordRecoveryMode ? (
           <>
-            <header className="app-household-bar">
-              <div className="app-household-bar-inner">
+            <header className="app-chrome">
+              <div className="app-chrome-top">
                 <span className="app-household-title">{household.name}</span>
+                <MonthChrome value={selectedMonth} onChange={setSelectedMonth} />
                 <button type="button" className="icon-btn" aria-label="הגדרות" onClick={() => setSettingsOpen(true)}>
                   ⚙
                 </button>
               </div>
-              {householdMembers.length ? (
-                <MemberFilterBar
+              {accounts.length ? (
+                <AccountFilterBar
+                  accounts={accounts}
                   members={householdMembers}
                   currentUserId={sessionUserId}
-                  value={memberScope}
-                  onChange={changeMemberScope}
+                  value={selectedAccountId}
+                  onChange={setSelectedAccountId}
                 />
               ) : null}
             </header>
@@ -937,19 +925,11 @@ function App() {
               {screen === 'dashboard' ? (
                 <Dashboard
                   selectedMonth={selectedMonth}
-                  onMonthChange={setSelectedMonth}
                   entries={scopedEntries}
                   historyEntries={scopedHistoryEntries}
-                  templates={scopedTemplates}
-                  accounts={accounts}
+                  templates={templates}
                   householdId={household.id}
-                  householdMembers={householdMembers}
-                  currentUserId={sessionUserId}
-                  selectedAccountId={selectedAccountId}
-                  onSelectAccount={setSelectedAccountId}
                   loading={loadingData}
-                  onOpenSettings={() => setSettingsOpen(true)}
-                  householdName={household.name}
                 />
               ) : null}
 
@@ -957,7 +937,6 @@ function App() {
                 <TransactionsView
                   entries={scopedEntries}
                   selectedMonth={selectedMonth}
-                  onSelectedMonthChange={setSelectedMonth}
                   householdId={household.id}
                   sessionUserId={sessionUserId}
                   householdMembers={householdMembers}
@@ -978,7 +957,6 @@ function App() {
                 <RecurringTemplatesPanel
                   householdId={household.id}
                   selectedMonth={selectedMonth}
-                  onMonthChange={setSelectedMonth}
                   onTemplatesChanged={refreshAfterTemplateChange}
                   members={householdMembers}
                   currentUserId={sessionUserId}
@@ -999,15 +977,35 @@ function App() {
 
       {sessionUserId && household && !passwordRecoveryMode ? (
         <>
-          <BottomNav active={screen === 'settings' ? 'dashboard' : screen} onChange={setScreen} />
-          {showFab ? (
-            <div className="fab-wrap">
-              <button type="button" className="fab fab-secondary" onClick={() => openFab('income')} aria-label="הוספת הכנסה">
-                + הכנסה
-              </button>
-              <button type="button" className="fab" onClick={() => openFab('expense')} aria-label="הוספת הוצאה">
-                + הוצאה
-              </button>
+          <BottomNav
+            active={screen === 'settings' ? 'dashboard' : screen}
+            onChange={setScreen}
+            onAdd={() => setAddChooserOpen(true)}
+          />
+          {addChooserOpen ? (
+            <div className="sheet-backdrop" onClick={() => setAddChooserOpen(false)}>
+              <div className="add-chooser" onClick={(e) => e.stopPropagation()}>
+                <button
+                  type="button"
+                  className="add-chooser-btn add-chooser-expense"
+                  onClick={() => {
+                    setAddChooserOpen(false)
+                    openFab('expense')
+                  }}
+                >
+                  הוצאה
+                </button>
+                <button
+                  type="button"
+                  className="add-chooser-btn add-chooser-income"
+                  onClick={() => {
+                    setAddChooserOpen(false)
+                    openFab('income')
+                  }}
+                >
+                  הכנסה
+                </button>
+              </div>
             </div>
           ) : null}
           <AddExpenseSheet

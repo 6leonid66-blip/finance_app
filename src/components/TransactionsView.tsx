@@ -4,7 +4,6 @@ import { supabase } from '../supabase'
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, categoryIcon, isOtherCategory } from '../constants/categories'
 import type { EntryType, FinanceEntry, FinancialAccount, HouseholdMemberBrief } from '../types'
 import { deleteReceiptAttachment } from '../lib/receiptStorage'
-import { MonthValuePicker } from './MonthValuePicker'
 import { householdAccountPickLabel } from '../lib/accountPickLabel'
 import { memberProfileDisplayName } from '../lib/displayUser'
 import { formatIls } from '../lib/money'
@@ -14,7 +13,6 @@ import { UndoToast } from './UndoToast'
 type TransactionsViewProps = {
   entries: FinanceEntry[]
   selectedMonth: string
-  onSelectedMonthChange: (month: string) => void
   householdId: string
   sessionUserId: string
   householdMembers: HouseholdMemberBrief[]
@@ -51,7 +49,6 @@ function compareCreatedDesc(a: FinanceEntry, b: FinanceEntry) {
 export function TransactionsView({
   entries,
   selectedMonth,
-  onSelectedMonthChange,
   householdId,
   sessionUserId,
   householdMembers,
@@ -252,12 +249,6 @@ export function TransactionsView({
     <div className="screen-pad tx-sheet-screen">
       <div className={headerCollapsed ? 'tx-toolbar is-collapsed' : 'tx-toolbar'}>
         <div className="tx-toolbar-main">
-          <MonthValuePicker
-            value={selectedMonth}
-            onChange={onSelectedMonthChange}
-            className="tx-month-picker"
-            compact={headerCollapsed}
-          />
           <button
             type="button"
             className="icon-btn"

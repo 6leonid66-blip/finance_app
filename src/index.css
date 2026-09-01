@@ -7,9 +7,10 @@
   --input-bg: #f8fafc;
   --track: #e2e8f0;
   --primary: #1d4ed8;
-  --income: #047857;
-  --expense: #b91c1c;
+  --income: #0d9488;
+  --expense: #e11d48;
   --accent-bg: #eff6ff;
+  --glass: color-mix(in srgb, #ffffff 72%, transparent);
   --shadow: 0 8px 28px rgba(15, 23, 42, 0.07);
   font-family: 'Segoe UI', ui-sans-serif, system-ui, Roboto, Arial, sans-serif;
   line-height: 1.45;
@@ -29,7 +30,10 @@
     --input-bg: #0f172a;
     --track: #334155;
     --primary: #60a5fa;
+    --income: #2dd4bf;
+    --expense: #fb7185;
     --accent-bg: #172554;
+    --glass: color-mix(in srgb, #1e293b 72%, transparent);
     --shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
   }
 

@@ -53,3 +53,15 @@ export function preferredAccountIdForScope(
   }
   return accounts.find((a) => !a.is_shared && a.owner_user_id === sessionUserId)?.id ?? accounts[0]?.id ?? ''
 }
+
+export function defaultSharedAccountId(accounts: FinancialAccount[]): string {
+  return accounts.find((a) => a.is_shared)?.id ?? accounts[0]?.id ?? ''
+}
+
+export function filterEntriesByAccount<T extends { account_id: string | null }>(
+  entries: T[],
+  accountId: string,
+): T[] {
+  if (!accountId) return entries
+  return entries.filter((entry) => entry.account_id === accountId)
+}

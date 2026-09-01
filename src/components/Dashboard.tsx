@@ -1,29 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { FinanceEntry, FinancialAccount, HouseholdMemberBrief, MonthlyPlan, RecurringTemplate } from '../types'
-import { MonthValuePicker } from './MonthValuePicker'
+import type { FinanceEntry, MonthlyPlan, RecurringTemplate } from '../types'
 import { colorForCategory } from '../lib/categoryColors'
-import { householdAccountPickLabel } from '../lib/accountPickLabel'
 import { supabase } from '../supabase'
 import { formatIls, formatSignedIls } from '../lib/money'
 import { computeMonthForecast } from '../lib/forecast'
 import { EXPENSE_CATEGORIES, categoryIcon } from '../constants/categories'
-import { monthValueToFirstDay } from '../lib/month'
+import { monthValueToFirstDay, shiftMonthValue } from '../lib/month'
 
 type DashboardProps = {
   selectedMonth: string
-  onMonthChange: (value: string) => void
   entries: FinanceEntry[]
   historyEntries: Array<{ type: 'income' | 'expense'; amount: number; occurred_on: string; planned: boolean }>
   templates: RecurringTemplate[]
-  accounts: FinancialAccount[]
   householdId: string
-  householdMembers: HouseholdMemberBrief[]
-  currentUserId: string
-  selectedAccountId: string
-  onSelectAccount: (id: string) => void
   loading: boolean
-  onOpenSettings: () => void
-  householdName: string
 }
 
 function pct(actual: number, planned: number) {
@@ -31,21 +21,18 @@ function pct(actual: number, planned: number) {
   return Math.min(100, Math.round((actual / planned) * 100))
 }
 
+function monthShort(key: string) {
+  const [y, m] = key.split('-').map(Number)
+  return new Date(y, m - 1, 1).toLocaleDateString('he-IL', { month: 'short' })
+}
+
 export function Dashboard({
   selectedMonth,
-  onMonthChange,
   entries,
   historyEntries,
   templates,
-  accounts,
   householdId,
-  householdMembers,
-  currentUserId,
-  selectedAccountId,
-  onSelectAccount,
   loading,
-  onOpenSettings,
-  householdName,
 }: DashboardProps) {
   const [plans, setPlans] = useState<MonthlyPlan[]>([])
   const [budgetCategory, setBudgetCategory] = useState(EXPENSE_CATEGORIES[0] ?? 'מזון')
@@ -109,22 +96,30 @@ export function Dashboard({
     return `conic-gradient(${parts.join(', ')})`
   }, [expenseDistribution])
 
-  const accountSummaries = useMemo(
-    () =>
-      accounts.map((account) => {
-        const list = entries.filter((entry) => entry.account_id === account.id && !entry.planned)
-        const income = list.filter((entry) => entry.type === 'income').reduce((sum, entry) => sum + entry.amount, 0)
-        const expense = list.filter((entry) => entry.type === 'expense').reduce((sum, entry) => sum + entry.amount, 0)
-        return {
-          ...account,
-          income,
-          expense,
-          balance: income - expense,
-          kind: account.is_shared ? 'משותף' : 'אישי',
-        }
-      }),
-    [accounts, entries],
-  )
+  const sixMonths = useMemo(() => {
+    const keys = Array.from({ length: 6 }, (_, i) => shiftMonthValue(selectedMonth, i - 5))
+    const grouped = new Map(keys.map((key) => [key, { income: 0, expense: 0 }]))
+    historyEntries.forEach((entry) => {
+      if (entry.planned) return
+      const key = entry.occurred_on.slice(0, 7)
+      const row = grouped.get(key)
+      if (!row) return
+      if (entry.type === 'income') row.income += entry.amount
+      if (entry.type === 'expense') row.expense += entry.amount
+    })
+    const max = Math.max(1, ...keys.map((k) => Math.max(grouped.get(k)?.income ?? 0, grouped.get(k)?.expense ?? 0)))
+    return keys.map((key) => {
+      const row = grouped.get(key) ?? { income: 0, expense: 0 }
+      return {
+        key,
+        label: monthShort(key),
+        income: row.income,
+        expense: row.expense,
+        incomeH: Math.max(4, (row.income / max) * 100),
+        expenseH: Math.max(4, (row.expense / max) * 100),
+      }
+    })
+  }, [historyEntries, selectedMonth])
 
   const budgetRows = useMemo(() => {
     return plans
@@ -170,19 +165,6 @@ export function Dashboard({
 
   return (
     <div className="dashboard">
-      <section className="dashboard-hero card">
-        <div className="dashboard-top">
-          <div>
-            <h1 className="dashboard-title">{householdName}</h1>
-            <p className="dashboard-sub">כמה נשאר החודש — לפי הקבועים שלכם</p>
-          </div>
-          <button type="button" className="icon-btn settings-btn" onClick={onOpenSettings} aria-label="הגדרות">
-            ⚙
-          </button>
-        </div>
-        <MonthValuePicker value={selectedMonth} onChange={onMonthChange} className="dashboard-month-picker" />
-      </section>
-
       {loading && !entries.length ? (
         <div className="skeleton-list">
           <div className="skeleton-row" />
@@ -236,6 +218,25 @@ export function Dashboard({
           {expenseDelta.toFixed(0)}%)
         </p>
       ) : null}
+
+      <section className="card">
+        <h2 className="card-heading">6 חודשים</h2>
+        <div className="six-legend">
+          <span className="six-legend-income">הכנסות</span>
+          <span className="six-legend-expense">הוצאות</span>
+        </div>
+        <div className="six-chart" role="img" aria-label="הכנסות והוצאות ב-6 חודשים">
+          {sixMonths.map((row) => (
+            <div key={row.key} className="six-col">
+              <div className="six-bars">
+                <div className="six-bar six-bar-income" style={{ height: `${row.incomeH}%` }} title={formatIls(row.income)} />
+                <div className="six-bar six-bar-expense" style={{ height: `${row.expenseH}%` }} title={formatIls(row.expense)} />
+              </div>
+              <span className="six-label">{row.label}</span>
+            </div>
+          ))}
+        </div>
+      </section>
 
       <section className="card">
         <h2 className="card-heading">תקציב לפי קטגוריה</h2>
@@ -303,32 +304,6 @@ export function Dashboard({
             ))}
             {!expenseDistribution.length ? <p className="muted">אין הוצאות לחודש זה.</p> : null}
           </div>
-        </div>
-      </section>
-
-      <section className="accounts-section">
-        <div className="accounts-head">
-          <h2 className="card-heading">חשבונות</h2>
-          <select value={selectedAccountId} onChange={(event) => onSelectAccount(event.target.value)} className="account-select">
-            {accounts.map((account) => (
-              <option key={account.id} value={account.id}>
-                {householdAccountPickLabel(account, currentUserId, householdMembers)}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="account-grid">
-          {accountSummaries.map((account) => (
-            <article key={account.id} className="account-card">
-              <div className="account-title-row">
-                <strong>{householdAccountPickLabel(account, currentUserId, householdMembers)}</strong>
-                <span className="account-kind">{account.kind}</span>
-              </div>
-              <small>הכנסות: {formatIls(account.income, { whole: true })}</small>
-              <small>הוצאות: {formatIls(account.expense, { whole: true })}</small>
-              <strong className="account-balance tabular">מאזן: {formatIls(account.balance, { whole: true })}</strong>
-            </article>
-          ))}
         </div>
       </section>
     </div>
