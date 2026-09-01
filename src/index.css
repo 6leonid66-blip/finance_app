@@ -6,10 +6,12 @@
   --border: #e2e8f0;
   --input-bg: #f8fafc;
   --track: #e2e8f0;
-  --primary: #2563eb;
+  --primary: #1d4ed8;
+  --income: #047857;
+  --expense: #b91c1c;
   --accent-bg: #eff6ff;
-  --shadow: 0 4px 24px rgba(15, 23, 42, 0.06);
-  font-family: system-ui, 'Segoe UI', Roboto, Arial, sans-serif;
+  --shadow: 0 8px 28px rgba(15, 23, 42, 0.07);
+  font-family: 'Segoe UI', ui-sans-serif, system-ui, Roboto, Arial, sans-serif;
   line-height: 1.45;
   color: var(--text);
   background: var(--surface);

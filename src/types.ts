@@ -26,6 +26,7 @@ export interface FinanceEntry {
   receipt_size_bytes: number | null
   auto_post_template_id?: string | null
   auto_post_month?: string | null
+  manually_edited?: boolean
   type: EntryType
   amount: number
   category: string
@@ -38,7 +39,6 @@ export interface FinanceEntry {
   owner_avatar_url?: string | null
   account_name?: string | null
   receipt_url?: string | null
-  is_fixed?: boolean
   is_auto_from_recurring?: boolean
   installment_progress_label?: string | null
 }
@@ -63,9 +63,16 @@ export interface RecurringTemplate {
   end_month: string | null
   max_installments: number | null
   auto_post_as_actual?: boolean
+  owner_user_id?: string | null
   active: boolean
   created_at: string
   updated_at: string
+  skippedThisMonth?: boolean
+}
+
+export interface RecurringSkip {
+  template_id: string
+  skip_month: string
 }
 
 export interface FinancialAccount {
@@ -85,4 +92,4 @@ export interface UserProfileView {
   avatar_url: string | null
 }
 
-export type AppScreen = 'dashboard' | 'transactions' | 'recurring' | 'reconcile' | 'assistant'
+export type AppScreen = 'dashboard' | 'transactions' | 'recurring' | 'settings'

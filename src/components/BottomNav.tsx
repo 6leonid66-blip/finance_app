@@ -5,12 +5,10 @@ type BottomNavProps = {
   onChange: (screen: AppScreen) => void
 }
 
-const items: { id: AppScreen; label: string }[] = [
-  { id: 'dashboard', label: 'דשבורד' },
-  { id: 'transactions', label: 'תנועות' },
-  { id: 'recurring', label: 'קבועים' },
-  { id: 'reconcile', label: 'השוואה' },
-  { id: 'assistant', label: 'עוזר' },
+const items: { id: AppScreen; label: string; icon: string }[] = [
+  { id: 'dashboard', label: 'דשבורד', icon: '⌂' },
+  { id: 'transactions', label: 'תנועות', icon: '☰' },
+  { id: 'recurring', label: 'קבועים', icon: '↻' },
 ]
 
 export function BottomNav({ active, onChange }: BottomNavProps) {
@@ -23,7 +21,10 @@ export function BottomNav({ active, onChange }: BottomNavProps) {
           className={item.id === active ? 'bottom-nav-item active' : 'bottom-nav-item'}
           onClick={() => onChange(item.id)}
         >
-          {item.label}
+          <span className="bottom-nav-icon" aria-hidden>
+            {item.icon}
+          </span>
+          <span>{item.label}</span>
         </button>
       ))}
     </nav>

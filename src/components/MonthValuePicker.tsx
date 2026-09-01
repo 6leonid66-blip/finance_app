@@ -1,8 +1,11 @@
+import { getLocalMonthValue, shiftMonthValue } from '../lib/month'
+
 type MonthValuePickerProps = {
   value: string
   onChange: (value: string) => void
   className?: string
   yearSpan?: number
+  compact?: boolean
 }
 
 const HEBREW_MONTHS = ['ינו׳', 'פבר׳', 'מרץ', 'אפר׳', 'מאי', 'יוני', 'יולי', 'אוג׳', 'ספט׳', 'אוק׳', 'נוב׳', 'דצמ׳']
@@ -19,15 +22,31 @@ function formatMonthValue(year: number, month: number) {
   return `${year}-${String(month).padStart(2, '0')}`
 }
 
-export function MonthValuePicker({ value, onChange, className, yearSpan = 6 }: MonthValuePickerProps) {
+export function MonthValuePicker({
+  value,
+  onChange,
+  className,
+  yearSpan = 6,
+  compact = false,
+}: MonthValuePickerProps) {
   const { year, month } = parseMonthValue(value)
   const nowYear = new Date().getFullYear()
   const minYear = nowYear - yearSpan
   const maxYear = nowYear + yearSpan
   const years = Array.from({ length: maxYear - minYear + 1 }, (_, i) => minYear + i)
+  const today = getLocalMonthValue()
+  const isCurrent = value.slice(0, 7) === today
 
   return (
-    <div className={className ? `month-picker ${className}` : 'month-picker'}>
+    <div className={className ? `month-picker month-picker-nav ${className}` : 'month-picker month-picker-nav'}>
+      <button
+        type="button"
+        className="month-nav-btn"
+        aria-label="חודש קודם"
+        onClick={() => onChange(shiftMonthValue(value, -1))}
+      >
+        ›
+      </button>
       <select
         aria-label="שנה"
         value={year}
@@ -50,6 +69,24 @@ export function MonthValuePicker({ value, onChange, className, yearSpan = 6 }: M
           </option>
         ))}
       </select>
+      {!compact ? (
+        <button
+          type="button"
+          className={isCurrent ? 'month-today-btn is-current' : 'month-today-btn'}
+          disabled={isCurrent}
+          onClick={() => onChange(today)}
+        >
+          היום
+        </button>
+      ) : null}
+      <button
+        type="button"
+        className="month-nav-btn"
+        aria-label="חודש הבא"
+        onClick={() => onChange(shiftMonthValue(value, 1))}
+      >
+        ‹
+      </button>
     </div>
   )
 }

@@ -26,6 +26,13 @@ export function monthValueToFirstDay(monthValue: string) {
  * inclusive start/end calendar dates for a month picker value.
  * Dates are formatted as local yyyy-mm-dd (no UTC edge shift via toISOString).
  */
+export function shiftMonthValue(monthValue: string, delta: number) {
+  const [y, m] = monthValue.slice(0, 7).split('-').map(Number)
+  if (!Number.isFinite(y) || !Number.isFinite(m)) return getLocalMonthValue()
+  const d = new Date(y, m - 1 + delta, 1)
+  return getLocalMonthValue(d)
+}
+
 export function monthValueToRange(monthValue: string) {
   const startDate = monthValueToFirstDay(monthValue).slice(0, 10)
   const matched = startDate.match(/^(\d{4})-(\d{2})-01$/)

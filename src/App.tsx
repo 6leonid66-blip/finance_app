@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
-import type { FormEvent, PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useMemo, useState, useCallback } from 'react'
+import type { FormEvent } from 'react'
 import './App.css'
 import { AddExpenseSheet } from './components/AddExpenseSheet'
 import type { AddExpensePrefill } from './components/AddExpenseSheet'
@@ -8,34 +8,24 @@ import { BottomNav } from './components/BottomNav'
 import { Dashboard } from './components/Dashboard'
 import { RecurringTemplatesPanel } from './components/RecurringTemplatesPanel'
 import { TransactionsView } from './components/TransactionsView'
-import { ReconcileView } from './components/ReconcileView'
-import { AssistantView } from './components/AssistantView'
-import { buildCompactLedger } from './lib/assistantContext'
+import { MemberFilterBar } from './components/MemberFilterBar'
+import { SettingsSheet } from './components/SettingsSheet'
 import { isSupabaseConfigured, supabase } from './supabase'
-import type { AppScreen, EntryType, FinanceEntry, FinancialAccount, Household, HouseholdMemberBrief, RecurringEndRule, UserProfileView } from './types'
+import type { AppScreen, FinanceEntry, FinancialAccount, Household, HouseholdMemberBrief, RecurringEndRule, RecurringTemplate, UserProfileView } from './types'
 import { getReceiptPublicUrl } from './lib/receiptStorage'
 import { uploadProfileImage } from './lib/profileStorage'
-import { analyzeSpokenExpenseWithGemini } from './lib/geminiReceipt'
 import { installmentProgressLabel } from './lib/recurringProgress'
-import { monthValueToFirstDay } from './lib/month'
+import { getLocalMonthValue, monthValueToFirstDay } from './lib/month'
 import { memberProfileDisplayName } from './lib/displayUser'
-import { getSpeechRecognitionCtor } from './lib/speech'
-import type { SpeechRecognitionLike } from './lib/speech'
-import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from './constants/categories'
+import { filterEntriesByMemberScope, preferredAccountIdForScope, type MemberScope } from './lib/memberScope'
 
 function App() {
-  // ברירת מחדל: אישי — מתחילים מתצוגה אישית; "משותף" לשיתוף עם בן/בת הזוג.
-  const [scopeMode, setScopeMode] = useState<'personal' | 'shared'>('personal')
-  const [screen, setScreen] = useState<AppScreen>('transactions')
+  const [memberScope, setMemberScope] = useState<MemberScope>('all')
+  const [screen, setScreen] = useState<AppScreen>('dashboard')
   const [sheetOpen, setSheetOpen] = useState(false)
   const [sheetType, setSheetType] = useState<'expense' | 'income'>('expense')
   const [sheetPrefill, setSheetPrefill] = useState<AddExpensePrefill>(null)
-  const [voiceFabType, setVoiceFabType] = useState<EntryType | null>(null)
-  const [voiceFabPhase, setVoiceFabPhase] = useState<'idle' | 'recording' | 'processing'>('idle')
-  const longPressTimerRef = useRef<number | null>(null)
-  const fabRecognitionRef = useRef<SpeechRecognitionLike | null>(null)
-  const fabSpokenTextRef = useRef('')
-  const longPressFiredRef = useRef(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [sessionUserId, setSessionUserId] = useState<string | null>(null)
   const [sessionUserEmail, setSessionUserEmail] = useState<string | null>(null)
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured)
@@ -52,7 +42,7 @@ function App() {
   const [resetPasswordConfirm, setResetPasswordConfirm] = useState('')
   const [updatingPassword, setUpdatingPassword] = useState(false)
   const [household, setHousehold] = useState<Household | null>(null)
-  const [selectedMonth, setSelectedMonth] = useState(() => new Date().toISOString().slice(0, 7))
+  const [selectedMonth, setSelectedMonth] = useState(() => getLocalMonthValue())
   const [loadingData, setLoadingData] = useState(false)
   const [entries, setEntries] = useState<FinanceEntry[]>([])
   const [historyEntries, setHistoryEntries] = useState<
@@ -66,6 +56,7 @@ function App() {
     }>
   >([])
   const [accounts, setAccounts] = useState<FinancialAccount[]>([])
+  const [templates, setTemplates] = useState<RecurringTemplate[]>([])
   const [profile, setProfile] = useState<UserProfileView>({
     full_name: null,
     email: null,
@@ -77,162 +68,29 @@ function App() {
   const [recurringRpcError, setRecurringRpcError] = useState<string | null>(null)
   const [householdMembers, setHouseholdMembers] = useState<HouseholdMemberBrief[]>([])
 
-  /** חשבונות שמציגים במצב אישי: האישיים שלי + כל החשבונות המשותפים (לפיד, בחירה, פירוט). */
-  const personalScopeAccounts = useMemo(
-    () =>
-      accounts.filter(
-        (a) => a.is_shared || (!a.is_shared && a.owner_user_id === sessionUserId),
-      ),
-    [accounts, sessionUserId],
-  )
-  const personalScopeAccountIds = useMemo(
-    () => personalScopeAccounts.map((a) => a.id),
-    [personalScopeAccounts],
-  )
-  /** תצוגה משותפת: כל חשבונות הבית (אישיים לכל משתמש + משותפים לפי דגל is_shared). */
-  const householdWideAccountIds = useMemo(() => accounts.map((account) => account.id), [accounts])
-
-  const canUsePersonalScope = useMemo(() => {
-    if (!sessionUserId || !accounts.length) return false
-    return personalScopeAccountIds.length > 0
-  }, [sessionUserId, accounts.length, personalScopeAccountIds.length])
-
-  /** כשאין אף חשבון רלוונטי לאישי — נתונים כמו במשותף עד שמסנכרנים את scopeMode (אפקט). */
-  const scopeForData: 'personal' | 'shared' =
-    scopeMode === 'personal' && !canUsePersonalScope ? 'shared' : scopeMode
-
-  const changeScopeMode = useCallback(
-    (mode: 'personal' | 'shared') => {
-      const personalVisible = accounts.filter(
-        (a) => a.is_shared || (!a.is_shared && a.owner_user_id === sessionUserId),
-      )
-      const effectiveMode = mode === 'personal' && !personalVisible.length ? 'shared' : mode
-      setScopeMode(effectiveMode)
-      const visible =
-        effectiveMode === 'shared'
-          ? accounts
-          : personalVisible
-      const ids = visible.map((a) => a.id)
-      if (!ids.length) return
-      setSelectedAccountId((prev) => (prev && ids.includes(prev) ? prev : ids[0]!))
+  const changeMemberScope = useCallback(
+    (scope: MemberScope) => {
+      setMemberScope(scope)
+      const nextAccount = preferredAccountIdForScope(scope, accounts, sessionUserId)
+      if (nextAccount) setSelectedAccountId(nextAccount)
     },
     [accounts, sessionUserId],
   )
 
-  /** בחירת חשבון ששייך לבן זוג — מעביר אוטומטית לתצוגה משותפת כדי שהפיד לא ייראה ריק באישי. */
-  const handleAccountSelectFromPicker = useCallback(
-    (id: string) => {
-      const ac = accounts.find((a) => a.id === id)
-      if (
-        scopeMode === 'personal' &&
-        sessionUserId &&
-        ac &&
-        !ac.is_shared &&
-        ac.owner_user_id &&
-        ac.owner_user_id !== sessionUserId
-      ) {
-        setScopeMode('shared')
-      }
-      setSelectedAccountId(id)
-    },
-    [accounts, scopeMode, sessionUserId],
+  const scopedEntries = useMemo(
+    () => filterEntriesByMemberScope(entries, memberScope, accounts),
+    [entries, memberScope, accounts],
   )
-
-  const allowedAccountIdsForScope = useMemo(() => {
-    if (!sessionUserId || !accounts.length) return []
-    if (scopeForData === 'shared') return accounts.map((a) => a.id)
-    return personalScopeAccountIds.length ? personalScopeAccountIds : accounts.map((a) => a.id)
-  }, [accounts, scopeForData, sessionUserId, personalScopeAccountIds])
-
-  useEffect(() => {
-    if (!sessionUserId || !accounts.length) return
-    const hasPersonal = accounts.some(
-      (a) => a.is_shared || (!a.is_shared && a.owner_user_id === sessionUserId),
-    )
-    if (scopeMode === 'personal' && !hasPersonal) {
-      const t = window.setTimeout(() => {
-        setScopeMode('shared')
-      }, 0)
-      return () => window.clearTimeout(t)
-    }
-    return undefined
-  }, [sessionUserId, accounts, scopeMode])
-
-  useEffect(() => {
-    if (!sessionUserId) return
-    const allowed = allowedAccountIdsForScope
-    if (!allowed.length) return
-    if (selectedAccountId && allowed.includes(selectedAccountId)) return
-    const t = window.setTimeout(() => {
-      setSelectedAccountId(allowed[0]!)
-    }, 0)
-    return () => window.clearTimeout(t)
-  }, [sessionUserId, allowedAccountIdsForScope, selectedAccountId])
-
-  const accountsLoaded = accounts.length > 0
-  // אישי = רק תנועות שהמשתמש הנוכחי רשם (owner_id). משותף = כל תנועות הבית לפי חשבונות ידועים.
-  const scopedEntries = useMemo(() => {
-    if (scopeForData === 'personal' && sessionUserId) {
-      return entries.filter((entry) => entry.owner_id === sessionUserId)
-    }
-    if (!accountsLoaded) return entries
-    const idSet = new Set(householdWideAccountIds)
-    return entries.filter((entry) => {
-      if (entry.account_id) return idSet.has(entry.account_id)
-      return true
-    })
-  }, [accountsLoaded, entries, householdWideAccountIds, scopeForData, sessionUserId])
-  const scopedHistoryEntries = useMemo(() => {
-    if (scopeForData === 'personal' && sessionUserId) {
-      return historyEntries.filter((entry) => entry.owner_id === sessionUserId)
-    }
-    if (!accountsLoaded) return historyEntries
-    const idSet = new Set(householdWideAccountIds)
-    return historyEntries.filter((entry) => {
-      if (entry.account_id) return idSet.has(entry.account_id)
-      return true
-    })
-  }, [accountsLoaded, historyEntries, householdWideAccountIds, scopeForData, sessionUserId])
-  const actualIncome = useMemo(
-    () => scopedEntries.filter((e) => e.type === 'income' && !e.planned).reduce((s, e) => s + e.amount, 0),
-    [scopedEntries],
+  const scopedHistoryEntries = useMemo(
+    () => filterEntriesByMemberScope(historyEntries, memberScope, accounts),
+    [historyEntries, memberScope, accounts],
   )
-  const actualExpense = useMemo(
-    () => scopedEntries.filter((e) => e.type === 'expense' && !e.planned).reduce((s, e) => s + e.amount, 0),
-    [scopedEntries],
-  )
-  const { plannedIncome, plannedExpense } = useMemo(() => {
-    const toMonthIndex = (monthValue: string) => {
-      const [y, m] = monthValue.split('-').map(Number)
-      return y * 12 + (m - 1)
-    }
-    const selectedMonthIndex = toMonthIndex(selectedMonth)
-    const completedMonths = new Map<string, { income: number; expense: number }>()
-    scopedHistoryEntries.forEach((entry) => {
-      if (entry.planned) return
-      const key = entry.occurred_on.slice(0, 7)
-      if (toMonthIndex(key) >= selectedMonthIndex) return
-      const row = completedMonths.get(key) ?? { income: 0, expense: 0 }
-      if (entry.type === 'income') row.income += entry.amount
-      if (entry.type === 'expense') row.expense += entry.amount
-      completedMonths.set(key, row)
-    })
-    const monthRows = Array.from(completedMonths.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([, totals]) => totals)
-
-    const avgOf = (list: number[]) => (list.length ? list.reduce((sum, v) => sum + v, 0) / list.length : 0)
-    const recent = monthRows.slice(-3)
-    const previous = monthRows.at(-1) ?? { income: 0, expense: 0 }
-    const avgIncome3 = avgOf(recent.map((row) => row.income))
-    const avgExpense3 = avgOf(recent.map((row) => row.expense))
-    const forecastIncome = previous.income > 0 ? previous.income * 0.6 + avgIncome3 * 0.4 : avgIncome3
-    const forecastExpense = previous.expense > 0 ? previous.expense * 0.6 + avgExpense3 * 0.4 : avgExpense3
-    return {
-      plannedIncome: Math.max(0, Math.round(forecastIncome)),
-      plannedExpense: Math.max(0, Math.round(forecastExpense)),
-    }
-  }, [scopedHistoryEntries, selectedMonth])
+  const scopedTemplates = useMemo(() => {
+    if (memberScope === 'all') return templates
+    if (memberScope === 'shared') return templates.filter((t) => !t.owner_user_id)
+    const userId = memberScope.startsWith('user:') ? memberScope.slice(5) : null
+    return templates.filter((t) => t.owner_user_id === userId)
+  }, [templates, memberScope])
 
   const describeError = (error: unknown) => {
     if (error instanceof Error) return error.message
@@ -322,7 +180,6 @@ function App() {
     return window.location.origin
   }
 
-  /** RPC (מיגרציה 302300): יוצר חשבון אישי חסר לכל חבר בית — בלי זה unique (household,name) חסם שני "חשבון שלי". */
   async function rpcEnsureAllHouseholdPersonalAccounts(householdId: string) {
     if (!supabase) return
     const { error } = await supabase.rpc('ensure_personal_accounts_for_household', {
@@ -436,15 +293,10 @@ function App() {
     }
   }
 
-  async function loadMonthlyData(householdId: string, monthValue: string) {
+  async function loadMonthlyData(householdId: string, monthValue: string, opts?: { silent?: boolean }) {
     if (!supabase) return
-    setLoadingData(true)
+    if (!opts?.silent) setLoadingData(true)
     setStatusMessage(null)
-    // Timezone-safe date strings derived directly from the "YYYY-MM" value.
-    // We deliberately avoid Date.toISOString() because it converts local
-    // midnight to UTC and silently shifts month boundaries by ~3h in
-    // Asia/Jerusalem, which leaks neighboring-month rows into the query
-    // window and drops the last day of the selected month.
     const [yNum, mNum] = monthValue.split('-').map(Number)
     const pad2 = (n: number) => String(n).padStart(2, '0')
     const lastDayCurrent = new Date(yNum, mNum, 0).getDate()
@@ -460,11 +312,7 @@ function App() {
       return (
         e.code === '42703' ||
         e.message?.includes('receipt_path') ||
-        e.message?.includes('receipt_filename') ||
-        e.message?.includes('receipt_mime_type') ||
-        e.message?.includes('receipt_size_bytes') ||
-        e.message?.includes('auto_post_template_id') ||
-        e.message?.includes('auto_post_month')
+        e.message?.includes('auto_post_template_id')
       )
     }
 
@@ -477,14 +325,7 @@ function App() {
       })
       if (autoPostError) {
         if (autoPostError.message?.includes('function') || autoPostError.code === '42883') {
-          setStatusMessage('פונקציית auto-post חסרה. הרץ מיגרציה: 202604290230_recurring_auto_post_transactions.sql')
-        } else if (
-          autoPostError.code === '42P10' ||
-          autoPostError.message?.includes('no unique or exclusion constraint matching the ON CONFLICT specification')
-        ) {
-          setStatusMessage(
-            'נדרש תיקון מיגרציה ל-auto-post. הרץ: 202604290235_fix_auto_post_conflict_index.sql',
-          )
+          setStatusMessage('פונקציית auto-post חסרה. הריצו את מיגרציית הקבועים ב-Supabase.')
         } else {
           throw autoPostError
         }
@@ -493,58 +334,69 @@ function App() {
       const txWithReceipts = await supabase
         .from('transactions')
         .select(
-          'id,owner_id,account_id,receipt_path,receipt_filename,receipt_mime_type,receipt_size_bytes,auto_post_template_id,auto_post_month,type,amount,category,note,occurred_on,planned,created_at',
+          'id,owner_id,account_id,receipt_path,receipt_filename,receipt_mime_type,receipt_size_bytes,auto_post_template_id,auto_post_month,manually_edited,type,amount,category,note,occurred_on,planned,created_at',
         )
         .eq('household_id', householdId)
         .gte('occurred_on', startDate)
         .lte('occurred_on', endDate)
-        .order('occurred_on', { ascending: false })
         .order('created_at', { ascending: false })
 
       let txData = txWithReceipts.data as Array<Record<string, unknown>> | null
       let txError = txWithReceipts.error
 
       if (txError && missingOptionalColumns(txError)) {
-        setStatusMessage(
-          'עמודות אופציונליות עדיין חסרות ב-DB. הרץ מיגרציות receipts + auto-post.',
-        )
         const txFallback = await supabase
           .from('transactions')
-          .select('id,owner_id,account_id,type,amount,category,note,occurred_on,planned,created_at')
+          .select('id,owner_id,account_id,type,amount,category,note,occurred_on,planned,created_at,auto_post_template_id,auto_post_month')
           .eq('household_id', householdId)
           .gte('occurred_on', startDate)
           .lte('occurred_on', endDate)
-          .order('occurred_on', { ascending: false })
           .order('created_at', { ascending: false })
         txData = txFallback.data as Array<Record<string, unknown>> | null
         txError = txFallback.error
       }
 
-      const [{ data: accountData, error: accountError }, { data: recurringData, error: recurringError }, { data: historyData, error: historyError }] =
-        await Promise.all([
-          supabase
-            .from('financial_accounts')
-            .select('id,household_id,owner_user_id,name,is_shared,active,created_at')
-            .eq('household_id', householdId)
-            .eq('active', true)
-            .order('created_at', { ascending: true }),
-          supabase
-            .from('recurring_templates')
-            .select('id,direction,category,active,template_start_month,end_rule,end_month,max_installments')
-            .eq('household_id', householdId)
-            .eq('active', true),
-          supabase
-            .from('transactions')
-            .select('type,amount,occurred_on,planned,account_id,owner_id')
-            .eq('household_id', householdId)
-            .gte('occurred_on', historyStart)
-            .lte('occurred_on', historyEnd)
-            .order('occurred_on', { ascending: true }),
-        ])
+      const [
+        { data: accountData, error: accountError },
+        { data: recurringData, error: recurringError },
+        { data: historyData, error: historyError },
+      ] = await Promise.all([
+        supabase
+          .from('financial_accounts')
+          .select('id,household_id,owner_user_id,name,is_shared,active,created_at')
+          .eq('household_id', householdId)
+          .eq('active', true)
+          .order('created_at', { ascending: true }),
+        supabase
+          .from('recurring_templates')
+          .select(
+            'id,household_id,direction,category,label,mode,default_amount,template_start_month,end_rule,end_month,max_installments,active,created_at,updated_at,owner_user_id',
+          )
+          .eq('household_id', householdId),
+        supabase
+          .from('transactions')
+          .select('type,amount,occurred_on,planned,account_id,owner_id')
+          .eq('household_id', householdId)
+          .gte('occurred_on', historyStart)
+          .lte('occurred_on', historyEnd)
+          .order('occurred_on', { ascending: true }),
+      ])
       if (txError) throw txError
       if (accountError) throw accountError
-      if (recurringError) throw recurringError
+      if (recurringError && recurringError.code !== '42703') throw recurringError
       if (historyError) throw historyError
+
+      let recurringRows = (recurringData ?? []) as RecurringTemplate[]
+      if (recurringError?.code === '42703') {
+        const fb = await supabase
+          .from('recurring_templates')
+          .select(
+            'id,household_id,direction,category,label,mode,default_amount,template_start_month,end_rule,end_month,max_installments,active,created_at,updated_at',
+          )
+          .eq('household_id', householdId)
+        recurringRows = (fb.data ?? []) as RecurringTemplate[]
+      }
+      setTemplates(recurringRows)
 
       const rows = (txData ?? []).map((row) => ({
         ...(row as unknown as FinanceEntry),
@@ -555,6 +407,7 @@ function App() {
         receipt_size_bytes: (row as { receipt_size_bytes?: number | null }).receipt_size_bytes ?? null,
         auto_post_template_id: (row as { auto_post_template_id?: string | null }).auto_post_template_id ?? null,
         auto_post_month: (row as { auto_post_month?: string | null }).auto_post_month ?? null,
+        manually_edited: Boolean((row as { manually_edited?: boolean }).manually_edited),
       }))
       const ownerIds = [...new Set(rows.map((r) => r.owner_id).filter(Boolean))]
       let profileMap = new Map<string, { email: string | null; full_name: string | null; avatar_url: string | null }>()
@@ -568,50 +421,29 @@ function App() {
           | null
         if (profileWithAvatar.error && profileWithAvatar.error.code === '42703') {
           const profileFallback = await supabase.from('profiles').select('id,email,full_name').in('id', ownerIds)
-          profs = (profileFallback.data as Array<{ id: string; email: string | null; full_name: string | null }> | null)?.map(
-            (p) => ({ ...p, avatar_url: null }),
-          ) ?? null
+          profs =
+            (profileFallback.data as Array<{ id: string; email: string | null; full_name: string | null }> | null)?.map(
+              (p) => ({ ...p, avatar_url: null }),
+            ) ?? null
         }
         if (profs) {
           profileMap = new Map(
-            profs.map((p) => [
-              p.id,
-              { email: p.email, full_name: p.full_name, avatar_url: p.avatar_url ?? null },
-            ]),
+            profs.map((p) => [p.id, { email: p.email, full_name: p.full_name, avatar_url: p.avatar_url ?? null }]),
           )
         }
       }
 
       const accountRows = (accountData ?? []) as FinancialAccount[]
       setAccounts(accountRows)
-      if (!selectedAccountId && accountRows[0]?.id) {
-        setSelectedAccountId(accountRows[0].id)
-      }
+      setSelectedAccountId((prev) => prev || preferredAccountIdForScope(memberScope, accountRows, sessionUserId))
       const accountMap = new Map(accountRows.map((a) => [a.id, a.name]))
-      const recurringKey = new Set(
-        (
-          (recurringData ?? []) as Array<{
-            id: string
-            direction: 'income' | 'expense'
-            category: string
-            template_start_month: string
-            end_rule: string
-            max_installments: number | null
-          }>
-        ).map(
-          (row) => `${row.direction}__${row.category}`,
-        ),
-      )
       const recurringById = new Map(
-        (
-          (recurringData ?? []) as Array<{
-            id: string
-            template_start_month: string
+        recurringRows.map((row) => [
+          row.id,
+          row as Pick<RecurringTemplate, 'template_start_month' | 'end_rule' | 'end_month' | 'max_installments'> & {
             end_rule: RecurringEndRule
-            end_month: string | null
-            max_installments: number | null
-          }>
-        ).map((row) => [row.id, row]),
+          },
+        ]),
       )
       setEntries(
         rows.map((row) => {
@@ -623,7 +455,6 @@ function App() {
             owner_avatar_url: p?.avatar_url ?? null,
             account_name: row.account_id ? accountMap.get(row.account_id) ?? null : null,
             receipt_url: getReceiptPublicUrl(row.receipt_path),
-            is_fixed: recurringKey.has(`${row.type}__${row.category}`),
             is_auto_from_recurring: Boolean(row.auto_post_template_id),
             installment_progress_label: (() => {
               if (!row.auto_post_template_id) return null
@@ -641,14 +472,16 @@ function App() {
         }),
       )
       setHistoryEntries(
-        ((historyData ?? []) as Array<{
-          type: 'income' | 'expense'
-          amount: unknown
-          occurred_on: string
-          planned: boolean
-          account_id: string | null
-          owner_id: string
-        }>).map((row) => ({
+        (
+          (historyData ?? []) as Array<{
+            type: 'income' | 'expense'
+            amount: unknown
+            occurred_on: string
+            planned: boolean
+            account_id: string | null
+            owner_id: string
+          }>
+        ).map((row) => ({
           type: row.type,
           amount: Number(row.amount),
           occurred_on: row.occurred_on,
@@ -703,6 +536,7 @@ function App() {
         setEntries([])
         setHistoryEntries([])
         setAccounts([])
+        setTemplates([])
         setHouseholdMembers([])
         setProfile({ full_name: null, email: null, avatar_path: null, avatar_url: null })
         setSelectedAccountId('')
@@ -713,14 +547,12 @@ function App() {
 
   useEffect(() => {
     if (!supabase || !sessionUserId) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void bootstrapUserData(sessionUserId, sessionUserEmail)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionUserId, sessionUserEmail])
 
   useEffect(() => {
     if (!household) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadMonthlyData(household.id, selectedMonth)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [household, selectedMonth])
@@ -739,9 +571,7 @@ function App() {
         const { error } = await supabase.auth.signUp({
           email,
           password,
-          options: {
-            emailRedirectTo: getAuthRedirectTo(),
-          },
+          options: { emailRedirectTo: getAuthRedirectTo() },
         })
         if (error) throw error
         setAuthInfo('נרשמת בהצלחה. נשלח מייל אימות. אם לא הגיע, לחץ "שלח שוב מייל אימות".')
@@ -764,11 +594,8 @@ function App() {
       email: email.trim(),
       options: { emailRedirectTo: getAuthRedirectTo() },
     })
-    if (error) {
-      setAuthError(error.message)
-    } else {
-      setAuthInfo('נשלח שוב מייל אימות. בדוק גם ספאם/קידומי מכירות.')
-    }
+    if (error) setAuthError(error.message)
+    else setAuthInfo('נשלח שוב מייל אימות. בדוק גם ספאם/קידומי מכירות.')
     setResendingVerification(false)
   }
 
@@ -783,9 +610,8 @@ function App() {
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
       redirectTo: getAuthRedirectTo(),
     })
-    if (error) {
-      setAuthError(error.message)
-    } else {
+    if (error) setAuthError(error.message)
+    else {
       setResetEmailSent(true)
       setAuthInfo('נשלח מייל איפוס סיסמה. אם לא הגיע, לחץ שוב כדי לשלוח מחדש.')
     }
@@ -831,160 +657,18 @@ function App() {
     setSheetOpen(true)
   }
 
-  const closeFabSheet = () => {
-    setSheetOpen(false)
-    setSheetPrefill(null)
-  }
-
-  const finishVoiceRecording = async (transcript: string, type: EntryType) => {
-    setVoiceFabPhase('processing')
-    let prefill: AddExpensePrefill
-    try {
-      const cats = type === 'expense' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES
-      const result = await analyzeSpokenExpenseWithGemini({
-        spokenText: transcript,
-        categories: cats,
-      })
-      const inList = result.suggestedCategory && (cats as readonly string[]).includes(result.suggestedCategory)
-      prefill = {
-        amount: typeof result.amount === 'number' ? String(result.amount) : '',
-        note: result.description || transcript,
-        category: inList ? result.suggestedCategory : 'אחר',
-        customCategory: inList ? '' : (result.suggestedCategory ?? ''),
-      }
-    } catch {
-      prefill = { note: transcript }
-    }
-    setVoiceFabPhase('idle')
-    setVoiceFabType(null)
-    openFab(type, prefill)
-  }
-
-  const stopFabRecognition = () => {
-    const rec = fabRecognitionRef.current
-    if (!rec) return false
-    try {
-      rec.stop()
-    } catch {
-      /* ignore */
-    }
-    return true
-  }
-
-  const beginFabVoiceRecording = (type: EntryType) => {
-    const Ctor = getSpeechRecognitionCtor()
-    if (!Ctor) {
-      setVoiceFabType(null)
-      setVoiceFabPhase('idle')
-      openFab(type)
-      return
-    }
-    const recognition = new Ctor()
-    fabRecognitionRef.current = recognition
-    fabSpokenTextRef.current = ''
-    recognition.lang = 'he-IL'
-    recognition.interimResults = true
-    recognition.continuous = true
-    recognition.maxAlternatives = 1
-    recognition.onresult = (event) => {
-      let combined = ''
-      for (let i = 0; i < event.results.length; i++) {
-        combined += event.results[i][0].transcript
-      }
-      fabSpokenTextRef.current = combined.trim()
-    }
-    recognition.onerror = () => {
-      fabRecognitionRef.current = null
-      setVoiceFabType(null)
-      setVoiceFabPhase('idle')
-      openFab(type)
-    }
-    recognition.onend = () => {
-      const transcript = fabSpokenTextRef.current.trim()
-      fabRecognitionRef.current = null
-      fabSpokenTextRef.current = ''
-      if (!transcript) {
-        setVoiceFabType(null)
-        setVoiceFabPhase('idle')
-        openFab(type)
-        return
-      }
-      void finishVoiceRecording(transcript, type)
-    }
-    setVoiceFabType(type)
-    setVoiceFabPhase('recording')
-    try {
-      recognition.start()
-    } catch {
-      fabRecognitionRef.current = null
-      setVoiceFabType(null)
-      setVoiceFabPhase('idle')
-      openFab(type)
-    }
-  }
-
-  const clearLongPressTimer = () => {
-    if (longPressTimerRef.current !== null) {
-      window.clearTimeout(longPressTimerRef.current)
-      longPressTimerRef.current = null
-    }
-  }
-
-  const handleFabPointerDown = (type: EntryType) => (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (event.button !== undefined && event.button !== 0) return
-    if (voiceFabPhase !== 'idle') return
-    longPressFiredRef.current = false
-    clearLongPressTimer()
-    try {
-      event.currentTarget.setPointerCapture?.(event.pointerId)
-    } catch {
-      /* ignore capture failures */
-    }
-    longPressTimerRef.current = window.setTimeout(() => {
-      longPressTimerRef.current = null
-      longPressFiredRef.current = true
-      beginFabVoiceRecording(type)
-    }, 380)
-  }
-
-  const handleFabPointerUp = (type: EntryType) => (event: ReactPointerEvent<HTMLButtonElement>) => {
-    try {
-      event.currentTarget.releasePointerCapture?.(event.pointerId)
-    } catch {
-      /* ignore capture failures */
-    }
-    if (fabRecognitionRef.current) {
-      stopFabRecognition()
-      return
-    }
-    if (longPressTimerRef.current !== null) {
-      clearLongPressTimer()
-      if (!longPressFiredRef.current) openFab(type)
-    }
-  }
-
-  const handleFabPointerCancel = () => (event: ReactPointerEvent<HTMLButtonElement>) => {
-    try {
-      event.currentTarget.releasePointerCapture?.(event.pointerId)
-    } catch {
-      /* ignore capture failures */
-    }
-    if (longPressTimerRef.current !== null) {
-      clearLongPressTimer()
-      return
-    }
-    if (fabRecognitionRef.current) {
-      stopFabRecognition()
-    }
-  }
-
   const refreshMonth = () => {
     if (household) void loadMonthlyData(household.id, selectedMonth)
   }
 
-  const handleTransactionSaved = async (savedMonth: string) => {
+  const handleTransactionSaved = async (saved: { month: string; entry?: FinanceEntry }) => {
     if (!household) return
-    const key = savedMonth.slice(0, 7)
+    const key = saved.month.slice(0, 7)
+    if (saved.entry && key === selectedMonth) {
+      setEntries((prev) => [saved.entry!, ...prev.filter((e) => e.id !== saved.entry!.id)])
+      void loadMonthlyData(household.id, selectedMonth, { silent: true })
+      return
+    }
     if (key !== selectedMonth) {
       setSelectedMonth(key)
       return
@@ -992,16 +676,10 @@ function App() {
     await loadMonthlyData(household.id, selectedMonth)
   }
 
-  // After a recurring template change, re-run auto-post for:
-  // - the month the user is viewing in the picker (so transactions match that screen)
-  // - the calendar "today" month when it differs (so the live month stays in sync too).
-  // The DB function is forward-only (no-op for past p_month), per migration.
   const refreshAfterTemplateChange = () => {
     if (!household || !supabase) return
     const householdId = household.id
-    const pad2 = (n: number) => String(n).padStart(2, '0')
-    const now = new Date()
-    const currentMonthFirstDay = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-01`
+    const currentMonthFirstDay = monthValueToFirstDay(getLocalMonthValue())
     const viewerMonthFirstDay = monthValueToFirstDay(selectedMonth)
     const monthsToSync = new Set<string>([viewerMonthFirstDay, currentMonthFirstDay])
 
@@ -1013,15 +691,9 @@ function App() {
             p_household: householdId,
             p_month,
           })
-          if (rpcErr && !firstErr) {
-            firstErr = new Error(rpcErr.message ?? 'RPC failed')
-          }
+          if (rpcErr && !firstErr) firstErr = new Error(rpcErr.message ?? 'RPC failed')
         }
-        if (firstErr) {
-          setRecurringRpcError(firstErr.message)
-        } else {
-          setRecurringRpcError(null)
-        }
+        setRecurringRpcError(firstErr ? firstErr.message : null)
       } catch (e) {
         setRecurringRpcError(e instanceof Error ? e.message : 'סנכרון תנועות מקבועים נכשל')
       }
@@ -1059,13 +731,15 @@ function App() {
       const trimmedName = next.full_name.trim()
       const trimmedAvatar = next.avatar_url.trim()
       const trimmedAvatarPath = next.avatar_path.trim()
-      let updateProfileError = (await supabase
-        .from('profiles')
-        .update({
-          full_name: trimmedName || null,
-          avatar_url: trimmedAvatar || null,
-        })
-        .eq('id', sessionUserId)).error
+      let updateProfileError = (
+        await supabase
+          .from('profiles')
+          .update({
+            full_name: trimmedName || null,
+            avatar_url: trimmedAvatar || null,
+          })
+          .eq('id', sessionUserId)
+      ).error
       if (updateProfileError && updateProfileError.code === '42703') {
         updateProfileError = (
           await supabase
@@ -1092,9 +766,7 @@ function App() {
         avatar_path: trimmedAvatarPath || null,
         avatar_url: trimmedAvatar || null,
       }))
-      if (household?.id) {
-        void refreshHouseholdMembers(household.id)
-      }
+      if (household?.id) void refreshHouseholdMembers(household.id)
       return { ok: true, message: 'הפרופיל נשמר בהצלחה' }
     } catch (error) {
       return { ok: false, message: `שמירת פרופיל נכשלה: ${describeError(error)}` }
@@ -1119,22 +791,6 @@ function App() {
   }
 
   const showFab = screen === 'dashboard' || screen === 'transactions'
-
-  const compactLedger = useMemo(() => {
-    if (!household?.id) return null
-    return buildCompactLedger({
-      householdId: household.id,
-      currentMonth: selectedMonth,
-      scope: scopeForData,
-      monthlyEntries: scopedEntries,
-      historyEntries: scopedHistoryEntries,
-      recurring: [],
-    })
-  }, [household?.id, selectedMonth, scopeForData, scopedEntries, scopedHistoryEntries])
-
-  const handlePrefillAddExpense = (type: 'expense' | 'income', prefill: AddExpensePrefill) => {
-    openFab(type, prefill)
-  }
 
   return (
     <div className="app-root" dir="rtl">
@@ -1256,107 +912,79 @@ function App() {
             <header className="app-household-bar">
               <div className="app-household-bar-inner">
                 <span className="app-household-title">{household.name}</span>
-                <span className="app-household-meta muted small">
-                  {householdMembers.length > 1
-                    ? `${householdMembers.length} חברי בית · נתונים משותפים במצב «משותף»`
-                    : 'בית משפחתי — הזמינו בן/בת זוג מ«הפרופיל שלי» עם קוד ההזמנה'}
-                </span>
+                <button type="button" className="icon-btn" aria-label="הגדרות" onClick={() => setSettingsOpen(true)}>
+                  ⚙
+                </button>
               </div>
+              {householdMembers.length ? (
+                <MemberFilterBar
+                  members={householdMembers}
+                  currentUserId={sessionUserId}
+                  value={memberScope}
+                  onChange={changeMemberScope}
+                />
+              ) : null}
             </header>
             <div key={screen} className="screen-fade">
-            {recurringRpcError ? (
-              <p className="banner-msg banner-msg-warn">
-                לא סונכרנו תנועות מהקבוע לחודש הנוכחי: {recurringRpcError}{' '}
-                <button type="button" className="link-inline" onClick={() => setRecurringRpcError(null)}>
-                  סגור
-                </button>
-              </p>
-            ) : null}
-            {screen === 'dashboard' ? (
-              <Dashboard
-                selectedMonth={selectedMonth}
-                onMonthChange={setSelectedMonth}
-                actualIncome={actualIncome}
-                actualExpense={actualExpense}
-                plannedIncome={plannedIncome}
-                plannedExpense={plannedExpense}
-                entries={scopedEntries}
-                historyEntries={scopedHistoryEntries}
-                accounts={accounts}
-                householdId={household.id}
-                householdMembers={householdMembers}
-                selectedAccountId={selectedAccountId}
-                onSelectAccount={handleAccountSelectFromPicker}
-                loading={loadingData}
-                onSignOut={signOut}
-                profile={profile}
-                currentUserId={sessionUserId ?? ''}
-                onSaveProfile={saveProfile}
-                onUploadProfilePhoto={uploadProfilePhoto}
-                onHouseholdJoined={() => {
-                  if (sessionUserId) void bootstrapUserData(sessionUserId, sessionUserEmail)
-                }}
-                scopeMode={scopeForData}
-                onScopeModeChange={changeScopeMode}
-                householdName={household.name}
-                onRenameHousehold={renameHousehold}
-              />
-            ) : null}
+              {recurringRpcError ? (
+                <p className="banner-msg banner-msg-warn">
+                  לא סונכרנו תנועות מהקבוע לחודש הנוכחי: {recurringRpcError}{' '}
+                  <button type="button" className="link-inline" onClick={() => setRecurringRpcError(null)}>
+                    סגור
+                  </button>
+                </p>
+              ) : null}
+              {screen === 'dashboard' ? (
+                <Dashboard
+                  selectedMonth={selectedMonth}
+                  onMonthChange={setSelectedMonth}
+                  entries={scopedEntries}
+                  historyEntries={scopedHistoryEntries}
+                  templates={scopedTemplates}
+                  accounts={accounts}
+                  householdId={household.id}
+                  householdMembers={householdMembers}
+                  currentUserId={sessionUserId}
+                  selectedAccountId={selectedAccountId}
+                  onSelectAccount={setSelectedAccountId}
+                  loading={loadingData}
+                  onOpenSettings={() => setSettingsOpen(true)}
+                  householdName={household.name}
+                />
+              ) : null}
 
-            {screen === 'transactions' ? (
-              <TransactionsView
-                entries={scopedEntries}
-                selectedMonth={selectedMonth}
-                onSelectedMonthChange={setSelectedMonth}
-                householdId={household.id}
-                sessionUserId={sessionUserId}
-                householdMembers={householdMembers}
-                accounts={scopeForData === 'shared' ? accounts : personalScopeAccounts}
-                selectedAccountId={selectedAccountId}
-                onSelectedAccountIdChange={handleAccountSelectFromPicker}
-                loading={loadingData}
-                onRefresh={refreshMonth}
-                scopeMode={scopeForData}
-                onScopeModeChange={changeScopeMode}
-              />
-            ) : null}
+              {screen === 'transactions' ? (
+                <TransactionsView
+                  entries={scopedEntries}
+                  selectedMonth={selectedMonth}
+                  onSelectedMonthChange={setSelectedMonth}
+                  householdId={household.id}
+                  sessionUserId={sessionUserId}
+                  householdMembers={householdMembers}
+                  accounts={accounts}
+                  selectedAccountId={selectedAccountId}
+                  onSelectedAccountIdChange={setSelectedAccountId}
+                  loading={loadingData}
+                  onRefresh={refreshMonth}
+                  onOptimisticRemove={(id) => setEntries((prev) => prev.filter((e) => e.id !== id))}
+                  onOptimisticRestore={(entry) => setEntries((prev) => [entry, ...prev.filter((e) => e.id !== entry.id)])}
+                  onOptimisticUpdate={(entry) =>
+                    setEntries((prev) => prev.map((e) => (e.id === entry.id ? { ...e, ...entry } : e)))
+                  }
+                />
+              ) : null}
 
-            {screen === 'recurring' ? (
-              <RecurringTemplatesPanel
-                householdId={household.id}
-                selectedMonth={selectedMonth}
-                onTemplatesChanged={refreshAfterTemplateChange}
-                scopeMode={scopeForData}
-                onScopeModeChange={changeScopeMode}
-              />
-            ) : null}
-
-            {screen === 'reconcile' && sessionUserId ? (
-              <ReconcileView
-                householdId={household.id}
-                sessionUserId={sessionUserId}
-                accounts={scopeForData === 'shared' ? accounts : personalScopeAccounts}
-                selectedAccountId={selectedAccountId}
-                onSelectedAccountIdChange={handleAccountSelectFromPicker}
-                scopeMode={scopeForData}
-                onScopeModeChange={changeScopeMode}
-                onRefresh={refreshMonth}
-                onPrefillAddExpense={handlePrefillAddExpense}
-              />
-            ) : null}
-
-            {screen === 'assistant' && sessionUserId && compactLedger ? (
-              <AssistantView
-                householdId={household.id}
-                sessionUserId={sessionUserId}
-                ledger={compactLedger}
-                scopeMode={scopeForData}
-                onScopeModeChange={changeScopeMode}
-                onPrefillAddExpense={handlePrefillAddExpense}
-              />
-            ) : null}
-
-          </div>
+              {screen === 'recurring' ? (
+                <RecurringTemplatesPanel
+                  householdId={household.id}
+                  selectedMonth={selectedMonth}
+                  onMonthChange={setSelectedMonth}
+                  onTemplatesChanged={refreshAfterTemplateChange}
+                  members={householdMembers}
+                  currentUserId={sessionUserId}
+                />
+              ) : null}
+            </div>
           </>
         ) : null}
 
@@ -1371,62 +999,47 @@ function App() {
 
       {sessionUserId && household && !passwordRecoveryMode ? (
         <>
-          <BottomNav active={screen} onChange={setScreen} />
+          <BottomNav active={screen === 'settings' ? 'dashboard' : screen} onChange={setScreen} />
           {showFab ? (
             <div className="fab-wrap">
-              <button
-                type="button"
-                className={`fab fab-secondary${voiceFabType === 'income' ? ` fab-${voiceFabPhase}` : ''}`}
-                onPointerDown={handleFabPointerDown('income')}
-                onPointerUp={handleFabPointerUp('income')}
-                onPointerCancel={handleFabPointerCancel()}
-                onPointerLeave={handleFabPointerCancel()}
-                onContextMenu={(e) => e.preventDefault()}
-                aria-label="הוספת הכנסה — לחיצה ארוכה להקלטה קולית"
-              >
-                {voiceFabType === 'income' && voiceFabPhase === 'recording'
-                  ? '🎙️ דבר…'
-                  : voiceFabType === 'income' && voiceFabPhase === 'processing'
-                    ? '⏳ מעבד…'
-                    : '+ הכנסה'}
+              <button type="button" className="fab fab-secondary" onClick={() => openFab('income')} aria-label="הוספת הכנסה">
+                + הכנסה
               </button>
-              <button
-                type="button"
-                className={`fab${voiceFabType === 'expense' ? ` fab-${voiceFabPhase}` : ''}`}
-                onPointerDown={handleFabPointerDown('expense')}
-                onPointerUp={handleFabPointerUp('expense')}
-                onPointerCancel={handleFabPointerCancel()}
-                onPointerLeave={handleFabPointerCancel()}
-                onContextMenu={(e) => e.preventDefault()}
-                aria-label="הוספת הוצאה — לחיצה ארוכה להקלטה קולית"
-              >
-                {voiceFabType === 'expense' && voiceFabPhase === 'recording'
-                  ? '🎙️ דבר…'
-                  : voiceFabType === 'expense' && voiceFabPhase === 'processing'
-                    ? '⏳ מעבד…'
-                    : '+ הוצאה'}
+              <button type="button" className="fab" onClick={() => openFab('expense')} aria-label="הוספת הוצאה">
+                + הוצאה
               </button>
-            </div>
-          ) : null}
-          {voiceFabPhase !== 'idle' ? (
-            <div className="fab-voice-hint" role="status" aria-live="polite">
-              {voiceFabPhase === 'recording'
-                ? 'מקליט… שחרר את הכפתור כדי לסיים'
-                : 'מנתח את ההקלטה ופותח טופס לאישור…'}
             </div>
           ) : null}
           <AddExpenseSheet
             open={sheetOpen}
-            onClose={closeFabSheet}
+            onClose={() => {
+              setSheetOpen(false)
+              setSheetPrefill(null)
+            }}
             householdId={household.id}
             sessionUserId={sessionUserId}
             householdMembers={householdMembers}
-            accounts={scopeForData === 'shared' ? accounts : personalScopeAccounts}
+            accounts={accounts}
             selectedAccountId={selectedAccountId}
-            onSelectedAccountIdChange={handleAccountSelectFromPicker}
+            onSelectedAccountIdChange={setSelectedAccountId}
             initialType={sheetType}
             prefill={sheetPrefill}
+            defaultMonth={selectedMonth}
             onSaved={handleTransactionSaved}
+          />
+          <SettingsSheet
+            open={settingsOpen}
+            onClose={() => setSettingsOpen(false)}
+            householdId={household.id}
+            householdName={household.name}
+            profile={profile}
+            onSaveProfile={saveProfile}
+            onUploadProfilePhoto={uploadProfilePhoto}
+            onHouseholdJoined={() => {
+              if (sessionUserId) void bootstrapUserData(sessionUserId, sessionUserEmail)
+            }}
+            onRenameHousehold={renameHousehold}
+            onSignOut={signOut}
           />
         </>
       ) : null}
