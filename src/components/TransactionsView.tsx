@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import type { CSSProperties } from 'react'
 import type { FormEvent } from 'react'
 import { supabase } from '../supabase'
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, categoryIcon, isOtherCategory } from '../constants/categories'
@@ -7,6 +8,7 @@ import { deleteReceiptAttachment } from '../lib/receiptStorage'
 import { householdAccountPickLabel } from '../lib/accountPickLabel'
 import { memberProfileDisplayName } from '../lib/displayUser'
 import { formatIls } from '../lib/money'
+import { colorForAccount, identityLabelForAccount } from '../lib/memberColor'
 import { monthValueToFirstDay } from '../lib/month'
 import { UndoToast } from './UndoToast'
 
@@ -18,7 +20,6 @@ type TransactionsViewProps = {
   householdMembers: HouseholdMemberBrief[]
   accounts: FinancialAccount[]
   selectedAccountId: string
-  onSelectedAccountIdChange: (id: string) => void
   loading: boolean
   onRefresh: () => void
   onOptimisticRemove: (id: string) => void
@@ -319,6 +320,16 @@ export function TransactionsView({
             key={entry.id}
             type="button"
             className="tx-sheet-row"
+            style={
+              {
+                '--member-fg': colorForAccount(
+                  accounts.find((a) => a.id === entry.account_id),
+                  householdMembers,
+                  sessionUserId,
+                  entry.owner_id,
+                ).fg,
+              } as CSSProperties
+            }
             onClick={() => beginEdit(entry)}
           >
             <span className="tx-sheet-icon" aria-hidden>
@@ -327,7 +338,15 @@ export function TransactionsView({
             <span className="tx-sheet-main">
               <strong>{entry.note?.trim() || entry.category}</strong>
               <span className="tx-sheet-sub">
-                {formatShortDate(entry.occurred_on)}
+                <span className="member-dot-label">
+                  {identityLabelForAccount(
+                    accounts.find((a) => a.id === entry.account_id),
+                    householdMembers,
+                    entry.owner_id,
+                    entry.owner_name,
+                  )}
+                </span>
+                {` · ${formatShortDate(entry.occurred_on)}`}
                 {entry.note?.trim() ? ` · ${entry.category}` : ''}
                 {isFromRecurringTemplate(entry) ? ' · ↻' : ''}
                 {entry.installment_progress_label ? ` · ${entry.installment_progress_label}` : ''}

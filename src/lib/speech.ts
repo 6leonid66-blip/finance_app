@@ -29,3 +29,26 @@ export function getSpeechRecognitionCtor(): SpeechRecognitionCtor | null {
   }
   return w.SpeechRecognition ?? w.webkitSpeechRecognition ?? null
 }
+
+export function parseVoiceTranscript(
+  transcript: string,
+  categories: readonly string[],
+): {
+  note?: string
+  amount?: string
+  category?: string
+} {
+  const trimmed = transcript.trim()
+  if (!trimmed) return {}
+  const result: { note?: string; amount?: string; category?: string } = { note: trimmed }
+  const amountMatch = trimmed.match(/(\d+(?:[.,]\d{1,2})?)/)
+  if (amountMatch?.[1]) {
+    const parsedAmount = Number(amountMatch[1].replace(',', '.'))
+    if (Number.isFinite(parsedAmount) && parsedAmount > 0) {
+      result.amount = Number.isInteger(parsedAmount) ? String(parsedAmount) : parsedAmount.toFixed(2)
+    }
+  }
+  const matched = categories.find((c) => trimmed.includes(c))
+  if (matched) result.category = matched
+  return result
+}

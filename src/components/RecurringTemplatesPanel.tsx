@@ -3,7 +3,10 @@ import type { FormEvent } from 'react'
 import { supabase } from '../supabase'
 import { ALL_PLAN_CATEGORIES, categoryIcon, isOtherCategory } from '../constants/categories'
 import { MonthValuePicker } from './MonthValuePicker'
+import type { CSSProperties } from 'react'
 import type { HouseholdMemberBrief, RecurringDirection, RecurringEndRule, RecurringMode, RecurringTemplate } from '../types'
+import { colorForMember } from '../lib/memberColor'
+import { filterTemplatesByMemberScope, memberScopeUserId, type MemberScope } from '../lib/memberScope'
 import { getLocalMonthValue, monthValueToFirstDay } from '../lib/month'
 import { inclusiveMonthSpan, installmentIndex } from '../lib/recurringProgress'
 import { formatIls } from '../lib/money'
@@ -15,6 +18,7 @@ type RecurringTemplatesPanelProps = {
   onTemplatesChanged: () => void
   members: HouseholdMemberBrief[]
   currentUserId: string
+  scope: MemberScope
 }
 
 export function RecurringTemplatesPanel({
@@ -23,6 +27,7 @@ export function RecurringTemplatesPanel({
   onTemplatesChanged,
   members,
   currentUserId,
+  scope,
 }: RecurringTemplatesPanelProps) {
   const [list, setList] = useState<RecurringTemplate[]>([])
   const [skippedIds, setSkippedIds] = useState<Set<string>>(new Set())
@@ -42,6 +47,7 @@ export function RecurringTemplatesPanel({
   const [error, setError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [showCreate, setShowCreate] = useState(false)
+  const [ownerColumnMissing, setOwnerColumnMissing] = useState(false)
 
   const addMonths = (monthValue: string, months: number) => {
     const [y, m] = monthValue.split('-').map(Number)
@@ -85,19 +91,19 @@ export function RecurringTemplatesPanel({
 
   const monthKey = selectedMonth.slice(0, 7)
 
-  const visible = list
+  const visible = useMemo(() => filterTemplatesByMemberScope(list, scope), [list, scope])
 
   const activeFixedTotals = useMemo(() => {
     let income = 0
     let expense = 0
-    for (const row of list) {
+    for (const row of visible) {
       if (!row.active || skippedIds.has(row.id) || !templateAppliesToMonth(row, monthKey)) continue
       const amt = templateAmount(row)
       if (row.direction === 'income') income += amt
       else expense += amt
     }
     return { income, expense, balance: income - expense }
-  }, [list, skippedIds, monthKey])
+  }, [visible, skippedIds, monthKey])
 
   const load = async () => {
     if (!supabase) return
@@ -113,6 +119,7 @@ export function RecurringTemplatesPanel({
     let data = withOwner.data
     let qErr = withOwner.error
     if (qErr && (qErr.code === '42703' || qErr.message?.includes('owner_user_id'))) {
+      setOwnerColumnMissing(true)
       const fb = await supabase
         .from('recurring_templates')
         .select(
@@ -133,6 +140,9 @@ export function RecurringTemplatesPanel({
       setError(qErr.message)
       return
     }
+    if (!qErr && !(withOwner.error && (withOwner.error.code === '42703' || withOwner.error.message?.includes('owner_user_id')))) {
+      setOwnerColumnMissing(false)
+    }
     setList((data ?? []) as RecurringTemplate[])
     setSkippedIds(new Set(((skipsRes.data ?? []) as Array<{ template_id: string }>).map((r) => r.template_id)))
     setError(null)
@@ -142,6 +152,12 @@ export function RecurringTemplatesPanel({
     void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [householdId, selectedMonth])
+
+  useEffect(() => {
+    if (showCreate && !editingId) {
+      setOwnerUserId(memberScopeUserId(scope) ?? '')
+    }
+  }, [scope, showCreate, editingId])
 
   const currentRealMonthFirstDay = () => monthValueToFirstDay(getLocalMonthValue())
 
@@ -348,6 +364,11 @@ export function RecurringTemplatesPanel({
           <div className="skeleton-row" />
         </div>
       ) : null}
+      {ownerColumnMissing ? (
+        <p className="banner-msg banner-msg-warn">
+          עמודת הבעלים בקבועים חסרה במסד. הריצו את מיגרציית הקבועים ב-Supabase כדי לראות מה שייך למי.
+        </p>
+      ) : null}
       {error ? <p className="sheet-error">{error}</p> : null}
 
       <article className="card card-form">
@@ -358,7 +379,7 @@ export function RecurringTemplatesPanel({
             className="btn-secondary"
             onClick={() => {
               setEditingId(null)
-              setOwnerUserId('')
+              setOwnerUserId(memberScopeUserId(scope) ?? '')
               setShowCreate(true)
             }}
           >
@@ -369,8 +390,13 @@ export function RecurringTemplatesPanel({
           {visible.map((row) => {
             const skipped = skippedIds.has(row.id)
             const amt = templateAmount(row)
+            const tint = colorForMember(row.owner_user_id, members, currentUserId)
             return (
-              <li key={row.id} className={`recurring-sheet-item${row.active ? '' : ' inactive'}${skipped ? ' skipped' : ''}`}>
+              <li
+                key={row.id}
+                className={`recurring-sheet-item${row.active ? '' : ' inactive'}${skipped ? ' skipped' : ''}`}
+                style={{ '--member-fg': tint.fg, '--member-bg': tint.bg } as CSSProperties}
+              >
                 <span className="tx-sheet-icon" aria-hidden>
                   {categoryIcon(row.category)}
                 </span>
@@ -380,7 +406,8 @@ export function RecurringTemplatesPanel({
                     {row.label?.trim() ? <span className="muted small"> · {row.category}</span> : null}
                   </strong>
                   <span className="tx-sheet-sub">
-                    {row.direction === 'income' ? 'הכנסה' : 'הוצאה'} · {ownerLabel(row)} · {describePeriod(row)}
+                    {row.direction === 'income' ? 'הכנסה' : 'הוצאה'} ·{' '}
+                    <span className="member-dot-label">{ownerLabel(row)}</span> · {describePeriod(row)}
                     {skipped ? ' · בוטל החודש' : ''}
                     {!row.active ? ' · מושבת' : ''}
                   </span>

@@ -1,15 +1,15 @@
+import type { CSSProperties } from 'react'
 import type { FinancialAccount, HouseholdMemberBrief } from '../types'
+import { colorForMember, memberFirstName, SHARED_TINT } from '../lib/memberColor'
+import type { MemberScope } from '../lib/memberScope'
+import { toUserScope } from '../lib/memberScope'
 
 type AccountFilterBarProps = {
   accounts: FinancialAccount[]
   members: HouseholdMemberBrief[]
   currentUserId: string
-  value: string
-  onChange: (accountId: string) => void
-}
-
-function firstName(name: string) {
-  return name.trim().split(/\s+/)[0] || name
+  value: MemberScope
+  onChange: (scope: MemberScope) => void
 }
 
 function initials(name: string) {
@@ -28,20 +28,33 @@ export function AccountFilterBar({ accounts, members, currentUserId, value, onCh
       return 0
     })
   const shared = accounts.filter((a) => a.is_shared)
+  const togetherActive = value === 'all'
 
   return (
-    <div className="member-filter account-filter" role="tablist" aria-label="בחירת חשבון">
+    <div className="member-filter account-filter" role="tablist" aria-label="בחירת תצוגה">
+      <button
+        type="button"
+        role="tab"
+        className={togetherActive ? 'member-chip member-chip-together active' : 'member-chip member-chip-together'}
+        onClick={() => onChange('all')}
+      >
+        <span className="member-chip-initials">⊕</span>
+        <span>ביחד</span>
+      </button>
       {personal.map((account) => {
         const member = members.find((m) => m.userId === account.owner_user_id)
         const raw = member?.displayName || (account.owner_user_id === currentUserId ? 'אני' : 'אישי')
-        const label = firstName(raw)
+        const label = memberFirstName(raw)
+        const tint = colorForMember(account.owner_user_id, members, currentUserId)
+        const scope = toUserScope(account.owner_user_id!)
         return (
           <button
             key={account.id}
             type="button"
             role="tab"
-            className={value === account.id ? 'member-chip active' : 'member-chip'}
-            onClick={() => onChange(account.id)}
+            className={value === scope ? 'member-chip active' : 'member-chip'}
+            style={{ '--member-fg': tint.fg, '--member-bg': tint.bg } as CSSProperties}
+            onClick={() => onChange(scope)}
           >
             {member?.avatarUrl ? (
               <img src={member.avatarUrl} alt="" className="member-chip-avatar" />
@@ -57,8 +70,9 @@ export function AccountFilterBar({ accounts, members, currentUserId, value, onCh
           key={account.id}
           type="button"
           role="tab"
-          className={value === account.id ? 'member-chip active' : 'member-chip'}
-          onClick={() => onChange(account.id)}
+          className={value === 'shared' ? 'member-chip active' : 'member-chip'}
+          style={{ '--member-fg': SHARED_TINT.fg, '--member-bg': SHARED_TINT.bg } as CSSProperties}
+          onClick={() => onChange('shared')}
         >
           <span className="member-chip-initials">⌂</span>
           <span>משותף</span>

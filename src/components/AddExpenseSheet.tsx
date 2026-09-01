@@ -4,7 +4,7 @@ import { supabase } from '../supabase'
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, isOtherCategory } from '../constants/categories'
 import type { EntryType, FinanceEntry, FinancialAccount, HouseholdMemberBrief } from '../types'
 import { uploadReceiptAttachment } from '../lib/receiptStorage'
-import { getSpeechRecognitionCtor } from '../lib/speech'
+import { getSpeechRecognitionCtor, parseVoiceTranscript } from '../lib/speech'
 import { householdAccountPickLabel } from '../lib/accountPickLabel'
 import { formatLocalYmd, getLocalMonthValue } from '../lib/month'
 import { CategoryGrid } from './CategoryGrid'
@@ -23,8 +23,7 @@ type AddExpenseSheetProps = {
   sessionUserId: string
   householdMembers: HouseholdMemberBrief[]
   accounts: FinancialAccount[]
-  selectedAccountId: string
-  onSelectedAccountIdChange: (id: string) => void
+  defaultAccountId: string
   initialType?: EntryType
   prefill?: AddExpensePrefill
   defaultMonth?: string
@@ -38,8 +37,7 @@ export function AddExpenseSheet({
   sessionUserId,
   householdMembers,
   accounts,
-  selectedAccountId,
-  onSelectedAccountIdChange,
+  defaultAccountId,
   initialType = 'expense',
   prefill,
   defaultMonth,
@@ -57,6 +55,7 @@ export function AddExpenseSheet({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showMore, setShowMore] = useState(false)
+  const [draftAccountId, setDraftAccountId] = useState(defaultAccountId)
 
   const categories = type === 'expense' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES
 
@@ -88,7 +87,8 @@ export function AddExpenseSheet({
     }
     setAmount(prefill?.amount ?? '')
     setNote(prefill?.note ?? '')
-  }, [open, initialType, prefill, defaultMonth])
+    setDraftAccountId(defaultAccountId)
+  }, [open, initialType, prefill, defaultMonth, defaultAccountId])
 
   useEffect(() => {
     return () => {
@@ -108,7 +108,7 @@ export function AddExpenseSheet({
       setError('הזן סכום חיובי')
       return
     }
-    if (!selectedAccountId?.trim()) {
+    if (!draftAccountId?.trim()) {
       setError('בחר חשבון לפני שמירה')
       return
     }
@@ -133,7 +133,7 @@ export function AddExpenseSheet({
         .insert({
           household_id: householdId,
           owner_id: sessionUserId,
-          account_id: selectedAccountId || null,
+          account_id: draftAccountId || null,
           ...receiptMeta,
           type,
           amount: parsed,
@@ -186,16 +186,10 @@ export function AddExpenseSheet({
     recognition.onresult = (event) => {
       const transcript = event.results?.[event.results.length - 1]?.[0]?.transcript?.trim()
       if (!transcript) return
-      setNote((prev) => (prev.trim() ? prev : transcript))
-      const amountMatch = transcript.match(/(\d+(?:[.,]\d{1,2})?)/)
-      if (amountMatch?.[1]) {
-        const parsedAmount = Number(amountMatch[1].replace(',', '.'))
-        if (Number.isFinite(parsedAmount) && parsedAmount > 0) {
-          setAmount(Number.isInteger(parsedAmount) ? String(parsedAmount) : parsedAmount.toFixed(2))
-        }
-      }
-      const matchedCategory = categories.find((c) => transcript.includes(c))
-      if (matchedCategory) setCategory(matchedCategory)
+      const parsed = parseVoiceTranscript(transcript, categories)
+      setNote((prev) => (prev.trim() ? prev : parsed.note ?? transcript))
+      if (parsed.amount) setAmount(parsed.amount)
+      if (parsed.category) setCategory(parsed.category)
     }
     recognition.onerror = () => setError('הקלטה קולית נכשלה. נסה שוב.')
     recognition.onend = () => setRecordingVoice(false)
@@ -291,8 +285,8 @@ export function AddExpenseSheet({
               <label>
                 חשבון
                 <select
-                  value={selectedAccountId}
-                  onChange={(e) => onSelectedAccountIdChange(e.target.value)}
+                  value={draftAccountId}
+                  onChange={(e) => setDraftAccountId(e.target.value)}
                   required
                 >
                   {!accounts.length ? <option value="">אין חשבונות</option> : null}

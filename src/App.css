@@ -2558,9 +2558,9 @@ input[type='month'] {
 }
 
 .member-chip.active {
-  background: var(--accent-bg);
-  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
-  color: var(--primary);
+  background: var(--member-bg, var(--accent-bg));
+  border-color: color-mix(in srgb, var(--member-fg, var(--primary)) 45%, var(--border));
+  color: var(--member-fg, var(--primary));
 }
 
 .member-chip-avatar,
@@ -2663,6 +2663,7 @@ input[type='month'] {
   padding: 8px 4px;
   border: none;
   border-bottom: 1px solid var(--border);
+  border-inline-start: 3px solid var(--member-fg, transparent);
   background: transparent;
   color: inherit;
   text-align: right;
@@ -2831,8 +2832,9 @@ input[type='month'] {
   display: grid;
   grid-template-columns: 28px 1fr auto;
   gap: 8px;
-  padding: 10px 0;
+  padding: 10px 8px 10px 0;
   border-bottom: 1px solid var(--border);
+  border-inline-start: 3px solid var(--member-fg, transparent);
 }
 
 .recurring-sheet-item.inactive,
@@ -3082,4 +3084,64 @@ input[type='month'] {
 .six-label {
   font-size: 0.68rem;
   color: var(--muted);
+}
+
+.member-chip-together.active {
+  --member-fg: var(--primary);
+  --member-bg: var(--accent-bg);
+}
+
+.member-dot-label {
+  color: var(--member-fg, var(--muted));
+  font-weight: 700;
+}
+
+.together-split {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0 0 12px;
+}
+
+.together-split-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 8px;
+  border-radius: 12px;
+  background: var(--member-bg, var(--card));
+  border: 1px solid color-mix(in srgb, var(--member-fg, var(--border)) 35%, var(--border));
+  color: var(--member-fg, var(--text));
+  min-width: 0;
+}
+
+.together-split-item span {
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.together-split-item strong {
+  font-size: 0.95rem;
+}
+
+.bottom-nav-add {
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
+  user-select: none;
+}
+
+.bottom-nav-add.is-recording {
+  background: #b91c1c;
+  box-shadow: 0 8px 18px color-mix(in srgb, #b91c1c 40%, transparent);
+  animation: dockRecordPulse 0.9s ease-in-out infinite;
+}
+
+@keyframes dockRecordPulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
 }

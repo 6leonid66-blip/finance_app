@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import './App.css'
 import { AddExpenseSheet } from './components/AddExpenseSheet'
@@ -18,7 +18,15 @@ import { uploadProfileImage } from './lib/profileStorage'
 import { installmentProgressLabel } from './lib/recurringProgress'
 import { getLocalMonthValue, monthValueToFirstDay } from './lib/month'
 import { memberProfileDisplayName } from './lib/displayUser'
-import { defaultSharedAccountId, filterEntriesByAccount } from './lib/memberScope'
+import { EXPENSE_CATEGORIES } from './constants/categories'
+import {
+  filterEntriesByMemberScope,
+  filterTemplatesByMemberScope,
+  preferredAccountIdForScope,
+  type MemberScope,
+} from './lib/memberScope'
+import { getSpeechRecognitionCtor, parseVoiceTranscript, type SpeechRecognitionLike } from './lib/speech'
+import { readStoredView, writeStoredView } from './lib/viewStorage'
 
 function App() {
   const [screen, setScreen] = useState<AppScreen>('dashboard')
@@ -64,19 +72,36 @@ function App() {
     avatar_path: null,
     avatar_url: null,
   })
-  const [selectedAccountId, setSelectedAccountId] = useState<string>('')
+  const [selectedScope, setSelectedScope] = useState<MemberScope>('all')
   const [statusMessage, setStatusMessage] = useState<string | null>(null)
   const [recurringRpcError, setRecurringRpcError] = useState<string | null>(null)
   const [householdMembers, setHouseholdMembers] = useState<HouseholdMemberBrief[]>([])
+  const [dockRecording, setDockRecording] = useState(false)
+  const voiceRecRef = useRef<SpeechRecognitionLike | null>(null)
+  const voiceTranscriptRef = useRef('')
 
   const scopedEntries = useMemo(
-    () => filterEntriesByAccount(entries, selectedAccountId),
-    [entries, selectedAccountId],
+    () => filterEntriesByMemberScope(entries, selectedScope, accounts),
+    [entries, selectedScope, accounts],
   )
   const scopedHistoryEntries = useMemo(
-    () => filterEntriesByAccount(historyEntries, selectedAccountId),
-    [historyEntries, selectedAccountId],
+    () => filterEntriesByMemberScope(historyEntries, selectedScope, accounts),
+    [historyEntries, selectedScope, accounts],
   )
+  const scopedTemplates = useMemo(
+    () => filterTemplatesByMemberScope(templates, selectedScope),
+    [templates, selectedScope],
+  )
+  const defaultAccountId = useMemo(
+    () => preferredAccountIdForScope(selectedScope, accounts, sessionUserId),
+    [selectedScope, accounts, sessionUserId],
+  )
+
+  const applyStoredView = (householdId: string) => {
+    const stored = readStoredView(householdId)
+    if (stored.scope) setSelectedScope(stored.scope)
+    if (stored.month) setSelectedMonth(stored.month)
+  }
 
   const describeError = (error: unknown) => {
     if (error instanceof Error) return error.message
@@ -187,7 +212,6 @@ function App() {
       .maybeSingle()
     if (ownErr) throw ownErr
     if (ownAccount?.id) {
-      setSelectedAccountId(ownAccount.id)
       return
     }
 
@@ -203,7 +227,6 @@ function App() {
       .select('id,name')
       .single()
     if (createErr) throw createErr
-    if (created?.id) setSelectedAccountId(created.id)
   }
 
   async function bootstrapUserData(userId: string, userEmail: string | null) {
@@ -247,6 +270,7 @@ function App() {
           .eq('id', memberRow.household_id)
           .single()
         if (existingHouseholdError) throw existingHouseholdError
+        applyStoredView((householdRow as Household).id)
         setHousehold(householdRow as Household)
         await rpcEnsureAllHouseholdPersonalAccounts((householdRow as Household).id)
         await ensureUserAccount((householdRow as Household).id, userId)
@@ -267,6 +291,7 @@ function App() {
         (bootstrapRow as { out_household_name?: string; household_name?: string } | null)?.household_name
 
       if (!resolvedId) throw new Error('לא הצלחתי ליצור בית חדש')
+      applyStoredView(resolvedId)
       setHousehold({ id: resolvedId, name: resolvedName ?? 'הבית שלנו' })
       await rpcEnsureAllHouseholdPersonalAccounts(resolvedId)
       await ensureUserAccount(resolvedId, userId)
@@ -369,18 +394,23 @@ function App() {
       ])
       if (txError) throw txError
       if (accountError) throw accountError
-      if (recurringError && recurringError.code !== '42703') throw recurringError
+      const recurringOwnerMissing =
+        recurringError?.code === '42703' || Boolean(recurringError?.message?.includes('owner_user_id'))
+      if (recurringError && !recurringOwnerMissing) throw recurringError
       if (historyError) throw historyError
 
       let recurringRows = (recurringData ?? []) as RecurringTemplate[]
-      if (recurringError?.code === '42703') {
+      if (recurringOwnerMissing) {
         const fb = await supabase
           .from('recurring_templates')
           .select(
             'id,household_id,direction,category,label,mode,default_amount,template_start_month,end_rule,end_month,max_installments,active,created_at,updated_at',
           )
           .eq('household_id', householdId)
-        recurringRows = (fb.data ?? []) as RecurringTemplate[]
+        recurringRows = ((fb.data ?? []) as RecurringTemplate[]).map((row) => ({
+          ...row,
+          owner_user_id: null,
+        }))
       }
       setTemplates(recurringRows)
 
@@ -421,9 +451,6 @@ function App() {
 
       const accountRows = (accountData ?? []) as FinancialAccount[]
       setAccounts(accountRows)
-      setSelectedAccountId((prev) =>
-        prev && accountRows.some((a) => a.id === prev) ? prev : defaultSharedAccountId(accountRows),
-      )
       const accountMap = new Map(accountRows.map((a) => [a.id, a.name]))
       const recurringById = new Map(
         recurringRows.map((row) => [
@@ -527,7 +554,7 @@ function App() {
         setTemplates([])
         setHouseholdMembers([])
         setProfile({ full_name: null, email: null, avatar_path: null, avatar_url: null })
-        setSelectedAccountId('')
+        setSelectedScope('all')
       }
     })
     return () => listener.subscription.unsubscribe()
@@ -544,6 +571,11 @@ function App() {
     void loadMonthlyData(household.id, selectedMonth)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [household, selectedMonth])
+
+  useEffect(() => {
+    if (!household) return
+    writeStoredView(household.id, selectedScope, selectedMonth)
+  }, [household, selectedScope, selectedMonth])
 
   const handleAuth = async (event: FormEvent) => {
     event.preventDefault()
@@ -643,6 +675,48 @@ function App() {
     setSheetType(type)
     setSheetPrefill(prefill)
     setSheetOpen(true)
+  }
+
+  const startDockVoice = () => {
+    const Ctor = getSpeechRecognitionCtor()
+    if (!Ctor) return
+    try {
+      voiceRecRef.current?.stop()
+    } catch {
+      /* already stopped */
+    }
+    const recognition = new Ctor()
+    recognition.lang = 'he-IL'
+    recognition.interimResults = true
+    recognition.continuous = true
+    recognition.maxAlternatives = 1
+    voiceTranscriptRef.current = ''
+    recognition.onresult = (event) => {
+      const transcript = event.results?.[event.results.length - 1]?.[0]?.transcript?.trim()
+      if (transcript) voiceTranscriptRef.current = transcript
+    }
+    recognition.onerror = () => setDockRecording(false)
+    recognition.onend = () => setDockRecording(false)
+    voiceRecRef.current = recognition
+    try {
+      recognition.start()
+      setDockRecording(true)
+    } catch {
+      setDockRecording(false)
+    }
+  }
+
+  const finishDockVoice = () => {
+    const rec = voiceRecRef.current
+    voiceRecRef.current = null
+    try {
+      rec?.stop()
+    } catch {
+      /* ignore */
+    }
+    setDockRecording(false)
+    const parsed = parseVoiceTranscript(voiceTranscriptRef.current, EXPENSE_CATEGORIES)
+    openFab('expense', parsed.note || parsed.amount ? parsed : null)
   }
 
   const refreshMonth = () => {
@@ -908,8 +982,8 @@ function App() {
                   accounts={accounts}
                   members={householdMembers}
                   currentUserId={sessionUserId}
-                  value={selectedAccountId}
-                  onChange={setSelectedAccountId}
+                  value={selectedScope}
+                  onChange={setSelectedScope}
                 />
               ) : null}
             </header>
@@ -927,9 +1001,13 @@ function App() {
                   selectedMonth={selectedMonth}
                   entries={scopedEntries}
                   historyEntries={scopedHistoryEntries}
-                  templates={templates}
+                  templates={scopedTemplates}
                   householdId={household.id}
                   loading={loadingData}
+                  scope={selectedScope}
+                  accounts={accounts}
+                  members={householdMembers}
+                  currentUserId={sessionUserId}
                 />
               ) : null}
 
@@ -941,8 +1019,7 @@ function App() {
                   sessionUserId={sessionUserId}
                   householdMembers={householdMembers}
                   accounts={accounts}
-                  selectedAccountId={selectedAccountId}
-                  onSelectedAccountIdChange={setSelectedAccountId}
+                  selectedAccountId={defaultAccountId}
                   loading={loadingData}
                   onRefresh={refreshMonth}
                   onOptimisticRemove={(id) => setEntries((prev) => prev.filter((e) => e.id !== id))}
@@ -960,6 +1037,7 @@ function App() {
                   onTemplatesChanged={refreshAfterTemplateChange}
                   members={householdMembers}
                   currentUserId={sessionUserId}
+                  scope={selectedScope}
                 />
               ) : null}
             </div>
@@ -981,6 +1059,9 @@ function App() {
             active={screen === 'settings' ? 'dashboard' : screen}
             onChange={setScreen}
             onAdd={() => setAddChooserOpen(true)}
+            onVoiceStart={startDockVoice}
+            onVoiceEnd={finishDockVoice}
+            recording={dockRecording}
           />
           {addChooserOpen ? (
             <div className="sheet-backdrop" onClick={() => setAddChooserOpen(false)}>
@@ -1018,8 +1099,7 @@ function App() {
             sessionUserId={sessionUserId}
             householdMembers={householdMembers}
             accounts={accounts}
-            selectedAccountId={selectedAccountId}
-            onSelectedAccountIdChange={setSelectedAccountId}
+            defaultAccountId={defaultAccountId}
             initialType={sheetType}
             prefill={sheetPrefill}
             defaultMonth={selectedMonth}

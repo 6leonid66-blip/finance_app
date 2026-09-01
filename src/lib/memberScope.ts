@@ -1,7 +1,11 @@
-import type { FinanceEntry, FinancialAccount } from '../types'
+import type { FinanceEntry, FinancialAccount, RecurringTemplate } from '../types'
 
-/** הכל · משתמש ספציפי · משותף */
+/** ביחד · משתמש ספציפי · משותף */
 export type MemberScope = 'all' | 'shared' | `user:${string}`
+
+export function isMemberScope(value: string): value is MemberScope {
+  return value === 'all' || value === 'shared' || value.startsWith('user:')
+}
 
 export function memberScopeUserId(scope: MemberScope): string | null {
   return scope.startsWith('user:') ? scope.slice(5) : null
@@ -38,12 +42,23 @@ export function filterEntriesByMemberScope<T extends Pick<FinanceEntry, 'account
   })
 }
 
+export function filterTemplatesByMemberScope<T extends Pick<RecurringTemplate, 'owner_user_id'>>(
+  templates: T[],
+  scope: MemberScope,
+): T[] {
+  if (scope === 'all') return templates
+  if (scope === 'shared') return templates.filter((row) => !row.owner_user_id)
+  const userId = memberScopeUserId(scope)
+  if (!userId) return templates
+  return templates.filter((row) => row.owner_user_id === userId)
+}
+
 export function preferredAccountIdForScope(
   scope: MemberScope,
   accounts: FinancialAccount[],
   sessionUserId: string | null,
 ): string {
-  if (scope === 'shared') {
+  if (scope === 'all' || scope === 'shared') {
     return accounts.find((a) => a.is_shared)?.id ?? accounts[0]?.id ?? ''
   }
   const userId = memberScopeUserId(scope) ?? sessionUserId

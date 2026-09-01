@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { FinanceEntry, MonthlyPlan, RecurringTemplate } from '../types'
+import type { CSSProperties } from 'react'
+import type { FinanceEntry, FinancialAccount, HouseholdMemberBrief, MonthlyPlan, RecurringTemplate } from '../types'
+import { colorForMember, memberFirstName, SHARED_TINT } from '../lib/memberColor'
+import type { MemberScope } from '../lib/memberScope'
 import { colorForCategory } from '../lib/categoryColors'
 import { supabase } from '../supabase'
 import { formatIls, formatSignedIls } from '../lib/money'
@@ -14,6 +17,10 @@ type DashboardProps = {
   templates: RecurringTemplate[]
   householdId: string
   loading: boolean
+  scope: MemberScope
+  accounts: FinancialAccount[]
+  members: HouseholdMemberBrief[]
+  currentUserId: string
 }
 
 function pct(actual: number, planned: number) {
@@ -33,6 +40,10 @@ export function Dashboard({
   templates,
   householdId,
   loading,
+  scope,
+  accounts,
+  members,
+  currentUserId,
 }: DashboardProps) {
   const [plans, setPlans] = useState<MonthlyPlan[]>([])
   const [budgetCategory, setBudgetCategory] = useState(EXPENSE_CATEGORIES[0] ?? 'מזון')
@@ -184,6 +195,54 @@ export function Dashboard({
             : ''}
         </p>
       </article>
+
+      {scope === 'all' && members.length ? (
+        <div className="together-split" aria-label="פיצול לפי אדם">
+          {members
+            .slice()
+            .sort((a, b) => {
+              if (a.userId === currentUserId) return -1
+              if (b.userId === currentUserId) return 1
+              return 0
+            })
+            .map((member) => {
+              const personalIds = new Set(
+                accounts.filter((a) => !a.is_shared && a.owner_user_id === member.userId).map((a) => a.id),
+              )
+              const spent = entries
+                .filter((e) => e.type === 'expense' && !e.planned && e.account_id && personalIds.has(e.account_id))
+                .reduce((s, e) => s + e.amount, 0)
+              const tint = colorForMember(member.userId, members, currentUserId)
+              return (
+                <div
+                  key={member.userId}
+                  className="together-split-item"
+                  style={{ '--member-fg': tint.fg, '--member-bg': tint.bg } as CSSProperties}
+                >
+                  <span>{memberFirstName(member.displayName)}</span>
+                  <strong className="tabular">{formatIls(spent, { whole: true })}</strong>
+                </div>
+              )
+            })}
+          <div
+            className="together-split-item"
+            style={{ '--member-fg': SHARED_TINT.fg, '--member-bg': SHARED_TINT.bg } as CSSProperties}
+          >
+            <span>משותף</span>
+            <strong className="tabular">
+              {formatIls(
+                entries
+                  .filter((e) => {
+                    if (e.type !== 'expense' || e.planned || !e.account_id) return false
+                    return accounts.some((a) => a.id === e.account_id && a.is_shared)
+                  })
+                  .reduce((s, e) => s + e.amount, 0),
+                { whole: true },
+              )}
+            </strong>
+          </div>
+        </div>
+      ) : null}
 
       <div className="kpi-grid">
         <article className="kpi-card kpi-income">
