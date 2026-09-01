@@ -215,7 +215,7 @@ function App() {
       return
     }
 
-    const { data: created, error: createErr } = await supabase
+    const { error: createErr } = await supabase
       .from('financial_accounts')
       .insert({
         household_id: householdId,
@@ -224,8 +224,6 @@ function App() {
         is_shared: false,
         active: true,
       })
-      .select('id,name')
-      .single()
     if (createErr) throw createErr
   }
 
