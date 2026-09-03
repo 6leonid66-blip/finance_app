@@ -32,11 +32,9 @@ export function installmentIndex(
 }
 
 /**
- * טקסט לפיד תנועות: נקודת מבט = החודש שבוחרים בפיקר (לא רק התאריך בשורה).
- * מציג: החודש בפיקר, תשלום X מתוך Y מתוך מה שהוגדר מההתחלה, והתחלה בפועל, וכמה חודשים נשארו עד הסיום.
+ * תווית קצרה לפיד: כמה תשלומים נשארו, או ∞ אם הקבוע ללא סוף.
  */
 export function installmentProgressLabel({
-  /** חודש YYYY-MM — המסך הנבחר (למשל אפריל ⇒ חישוב "עד" אפריל) */
   asOfMonthKey,
   template_start_month,
   end_rule,
@@ -49,16 +47,16 @@ export function installmentProgressLabel({
   end_month: string | null
   max_installments: number | null
 }): string | null {
+  if (end_rule === 'unlimited') return '∞'
+
   const startMk = template_start_month.slice(0, 7)
   const curMk = asOfMonthKey.slice(0, 7)
-  const viewHe = monthKeyToShortHe(curMk)
-  const startHe = monthKeyToShortHe(startMk)
 
   if (end_rule === 'fixed_installments' && max_installments != null && max_installments > 0) {
     const total = max_installments
     const idx = installmentIndex(template_start_month, curMk, total)
     const remaining = Math.max(0, total - idx)
-    return `ב-${viewHe}: תשלום ${idx} מתוך ${total} · התחלה ${startHe} · עוד ${remaining} חודשים`
+    return remaining <= 0 ? 'תשלום אחרון' : `נשארו ${remaining} תשלומים`
   }
 
   if (end_rule === 'until_month' && end_month) {
@@ -67,7 +65,7 @@ export function installmentProgressLabel({
     if (total <= 0) return null
     const idx = installmentIndex(template_start_month, curMk, total)
     const remaining = Math.max(0, total - idx)
-    return `ב-${viewHe}: תשלום ${idx} מתוך ${total} · התחלה ${startHe} · עוד ${remaining} חודשים`
+    return remaining <= 0 ? 'תשלום אחרון' : `נשארו ${remaining} תשלומים`
   }
 
   return null

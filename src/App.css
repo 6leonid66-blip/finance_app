@@ -241,11 +241,9 @@ p .thinking-dots,
 @keyframes fadeInUp {
   from {
     opacity: 0;
-    transform: translateY(6px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
 
@@ -275,8 +273,51 @@ p .thinking-dots,
 .app-chrome-top {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.app-chrome-month-row {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+
+.household-name-chip {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px 8px 10px;
+  border-radius: 16px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--primary) 16%, var(--card)), var(--card));
+  border: 1px solid color-mix(in srgb, var(--primary) 22%, var(--border));
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+.household-name-icon {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--primary) 18%, var(--card));
+  color: var(--primary);
+  font-size: 1.05rem;
+}
+
+.household-name-text {
+  min-width: 0;
+  font-weight: 800;
+  font-size: 1.12rem;
+  line-height: 1.25;
+  letter-spacing: -0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .app-chrome-top .app-household-title {
@@ -1288,7 +1329,12 @@ p .thinking-dots,
   align-items: center;
   justify-content: center;
   padding: 12px;
-  z-index: 60;
+  z-index: 80;
+}
+
+.modal-backdrop--sheet {
+  align-items: flex-end;
+  padding: 0;
 }
 
 .modal-card {
@@ -1296,6 +1342,14 @@ p .thinking-dots,
   max-width: 640px;
   max-height: 88dvh;
   overflow: auto;
+}
+
+.modal-backdrop--sheet .modal-card {
+  width: 100%;
+  max-width: 720px;
+  max-height: min(92dvh, calc(100dvh - env(safe-area-inset-top) - 12px));
+  border-radius: 20px 20px 0 0;
+  padding-bottom: calc(16px + env(safe-area-inset-bottom));
 }
 
 .receipt-link-btn,
@@ -2708,6 +2762,30 @@ input[type='month'] {
   text-overflow: ellipsis;
 }
 
+.tx-remain-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 4px;
+  width: fit-content;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--primary) 14%, var(--card));
+  color: var(--primary);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+}
+
+.tx-remain-badge.is-infinite {
+  font-size: 0.92rem;
+  line-height: 1;
+  padding-inline: 9px;
+}
+
+.recurring-sheet-item.is-tappable {
+  cursor: pointer;
+}
+
 .tx-sheet-amt {
   font-weight: 700;
   font-size: 0.92rem;
@@ -2942,6 +3020,7 @@ input[type='month'] {
 .month-chrome {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
   flex: 0 0 auto;
 }
@@ -2994,29 +3073,49 @@ input[type='month'] {
   align-self: center;
 }
 
+.sheet-backdrop.add-chooser-backdrop {
+  align-items: flex-end;
+  z-index: 55;
+}
+
 .add-chooser {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: calc(84px + env(safe-area-inset-bottom));
-  width: min(360px, calc(100% - 32px));
+  position: relative;
+  left: auto;
+  transform: none;
+  bottom: auto;
+  width: 100%;
+  max-width: 720px;
   display: grid;
-  gap: 8px;
-  padding: 12px;
-  border-radius: 20px;
-  background: var(--glass);
-  backdrop-filter: saturate(160%) blur(18px);
-  -webkit-backdrop-filter: saturate(160%) blur(18px);
+  gap: 10px;
+  padding: 18px 16px calc(20px + env(safe-area-inset-bottom));
+  border-radius: 22px 22px 0 0;
+  background: var(--card);
+  box-shadow: 0 -12px 40px rgba(15, 23, 42, 0.18);
   border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-  z-index: 40;
+  border-bottom: 0;
+  z-index: 56;
+}
+
+.add-chooser-title {
+  margin: 0 0 2px;
+  text-align: center;
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.add-chooser-hint {
+  margin: 2px 0 0;
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--muted);
 }
 
 .add-chooser-btn {
-  min-height: 52px;
+  min-height: 56px;
   border: none;
-  border-radius: 14px;
-  font-size: 1.05rem;
-  font-weight: 700;
+  border-radius: 16px;
+  font-size: 1.12rem;
+  font-weight: 800;
   cursor: pointer;
 }
 

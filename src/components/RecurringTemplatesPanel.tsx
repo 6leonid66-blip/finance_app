@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { FormEvent } from 'react'
 import { supabase } from '../supabase'
 import { ALL_PLAN_CATEGORIES, categoryIcon, isOtherCategory } from '../constants/categories'
@@ -8,7 +9,7 @@ import type { HouseholdMemberBrief, RecurringDirection, RecurringEndRule, Recurr
 import { colorForMember } from '../lib/memberColor'
 import { filterTemplatesByMemberScope, memberScopeUserId, type MemberScope } from '../lib/memberScope'
 import { getLocalMonthValue, monthValueToFirstDay } from '../lib/month'
-import { inclusiveMonthSpan, installmentIndex } from '../lib/recurringProgress'
+import { inclusiveMonthSpan, installmentProgressLabel } from '../lib/recurringProgress'
 import { formatIls } from '../lib/money'
 import { templateAppliesToMonth, templateAmount } from '../lib/forecast'
 
@@ -46,6 +47,7 @@ export function RecurringTemplatesPanel({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const editCardRef = useRef<HTMLElement | null>(null)
   const [showCreate, setShowCreate] = useState(false)
   const [ownerColumnMissing, setOwnerColumnMissing] = useState(false)
 
@@ -74,19 +76,15 @@ export function RecurringTemplatesPanel({
   const describePeriod = (row: RecurringTemplate) => {
     const startMk = row.template_start_month?.slice(0, 7)
     if (!startMk) return '—'
-    if (row.end_rule === 'unlimited') return 'כל חודש'
-    if (row.end_rule === 'until_month') {
-      const endMonthValue = row.end_month?.slice(0, 7)
-      if (!endMonthValue) return 'עד חודש שייקבע'
-      const total = inclusiveMonthSpan(startMk, endMonthValue)
-      if (!total) return `עד ${formatMonthLabel(endMonthValue)}`
-      const idx = installmentIndex(row.template_start_month!, selectedMonth.slice(0, 7), total)
-      return `תשלום ${idx} מתוך ${total}`
-    }
-    const total = row.max_installments ?? 0
-    if (!total) return 'תשלומים'
-    const idx = installmentIndex(row.template_start_month!, selectedMonth.slice(0, 7), total)
-    return `תשלום ${idx} מתוך ${total}`
+    return (
+      installmentProgressLabel({
+        asOfMonthKey: selectedMonth.slice(0, 7),
+        template_start_month: row.template_start_month,
+        end_rule: row.end_rule,
+        end_month: row.end_month,
+        max_installments: row.max_installments,
+      }) ?? (row.end_rule === 'until_month' && row.end_month ? `עד ${formatMonthLabel(row.end_month.slice(0, 7))}` : 'תשלומים')
+    )
   }
 
   const monthKey = selectedMonth.slice(0, 7)
@@ -158,6 +156,14 @@ export function RecurringTemplatesPanel({
       setOwnerUserId(memberScopeUserId(scope) ?? '')
     }
   }, [scope, showCreate, editingId])
+
+  useEffect(() => {
+    if (!showCreate && !editingId) return
+    const node = editCardRef.current
+    if (!node) return
+    node.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' })
+    window.setTimeout(() => node.scrollIntoView({ block: 'center', inline: 'nearest' }), 50)
+  }, [showCreate, editingId])
 
   const currentRealMonthFirstDay = () => monthValueToFirstDay(getLocalMonthValue())
 
@@ -391,11 +397,13 @@ export function RecurringTemplatesPanel({
             const skipped = skippedIds.has(row.id)
             const amt = templateAmount(row)
             const tint = colorForMember(row.owner_user_id, members, currentUserId)
+            const remainLabel = describePeriod(row)
             return (
               <li
                 key={row.id}
-                className={`recurring-sheet-item${row.active ? '' : ' inactive'}${skipped ? ' skipped' : ''}`}
+                className={`recurring-sheet-item is-tappable${row.active ? '' : ' inactive'}${skipped ? ' skipped' : ''}`}
                 style={{ '--member-fg': tint.fg, '--member-bg': tint.bg } as CSSProperties}
+                onClick={() => startEdit(row)}
               >
                 <span className="tx-sheet-icon" aria-hidden>
                   {categoryIcon(row.category)}
@@ -407,10 +415,15 @@ export function RecurringTemplatesPanel({
                   </strong>
                   <span className="tx-sheet-sub">
                     {row.direction === 'income' ? 'הכנסה' : 'הוצאה'} ·{' '}
-                    <span className="member-dot-label">{ownerLabel(row)}</span> · {describePeriod(row)}
+                    <span className="member-dot-label">{ownerLabel(row)}</span>
                     {skipped ? ' · בוטל החודש' : ''}
                     {!row.active ? ' · מושבת' : ''}
                   </span>
+                  {remainLabel ? (
+                    <span className={remainLabel === '∞' ? 'tx-remain-badge is-infinite' : 'tx-remain-badge'}>
+                      {remainLabel}
+                    </span>
+                  ) : null}
                 </div>
                 <strong
                   className={`tabular ${
@@ -423,7 +436,7 @@ export function RecurringTemplatesPanel({
                 >
                   {row.mode === 'variable_budget' ? 'משתנה' : formatIls(amt)}
                 </strong>
-                <div className="recurring-sheet-actions">
+                <div className="recurring-sheet-actions" onClick={(e) => e.stopPropagation()}>
                   {row.active && !skipped ? (
                     <button type="button" className="btn-ghost btn-xs" onClick={() => void skipThisMonth(row)}>
                       בטל החודש
@@ -451,15 +464,20 @@ export function RecurringTemplatesPanel({
         </ul>
       </article>
 
-      {showCreate || editingId ? (
+      {showCreate || editingId
+        ? createPortal(
         <div
-          className="modal-backdrop modal-backdrop--center"
+          className="modal-backdrop modal-backdrop--sheet"
           onClick={() => {
             setEditingId(null)
             setShowCreate(false)
           }}
         >
-          <article className="card card-form modal-card" onClick={(e) => e.stopPropagation()}>
+          <article
+            ref={editCardRef}
+            className="card card-form modal-card"
+            onClick={(e) => e.stopPropagation()}
+          >
             <h3 className="card-heading">{editingId ? 'עריכת קבוע' : 'קבוע חדש'}</h3>
             <form onSubmit={editingId ? saveEdit : addTemplate} className="stack tight">
               <div className="segmented">
@@ -595,8 +613,10 @@ export function RecurringTemplatesPanel({
               </div>
             </form>
           </article>
-        </div>
-      ) : null}
+        </div>,
+        document.body,
+      )
+        : null}
     </div>
   )
 }

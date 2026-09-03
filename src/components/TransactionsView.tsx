@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { CSSProperties } from 'react'
 import type { FormEvent } from 'react'
 import { supabase } from '../supabase'
@@ -133,6 +134,16 @@ export function TransactionsView({
     el.addEventListener('scroll', onScroll, { passive: true })
     return () => el.removeEventListener('scroll', onScroll)
   }, [])
+
+  const editCardRef = useRef<HTMLElement | null>(null)
+
+  useEffect(() => {
+    if (!editing) return
+    const node = editCardRef.current
+    if (!node) return
+    node.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' })
+    window.setTimeout(() => node.scrollIntoView({ block: 'center', inline: 'nearest' }), 50)
+  }, [editing])
 
   const beginEdit = (entry: FinanceEntry) => {
     setEditing(entry)
@@ -349,8 +360,18 @@ export function TransactionsView({
                 {` · ${formatShortDate(entry.occurred_on)}`}
                 {entry.note?.trim() ? ` · ${entry.category}` : ''}
                 {isFromRecurringTemplate(entry) ? ' · ↻' : ''}
-                {entry.installment_progress_label ? ` · ${entry.installment_progress_label}` : ''}
               </span>
+              {entry.installment_progress_label ? (
+                <span
+                  className={
+                    entry.installment_progress_label === '∞'
+                      ? 'tx-remain-badge is-infinite'
+                      : 'tx-remain-badge'
+                  }
+                >
+                  {entry.installment_progress_label}
+                </span>
+              ) : null}
             </span>
             <span className={entry.type === 'expense' ? 'tx-sheet-amt amount-expense' : 'tx-sheet-amt amount-income'}>
               {entry.type === 'expense' ? '−' : '+'}
@@ -384,9 +405,14 @@ export function TransactionsView({
         onDismiss={() => setUndo(null)}
       />
 
-      {editing ? (
-        <div className="modal-backdrop" onClick={() => setEditing(null)}>
-          <article className="card card-form modal-card" onClick={(e) => e.stopPropagation()}>
+      {editing
+        ? createPortal(
+        <div className="modal-backdrop modal-backdrop--sheet" onClick={() => setEditing(null)}>
+          <article
+            ref={editCardRef}
+            className="card card-form modal-card"
+            onClick={(e) => e.stopPropagation()}
+          >
             <h3 className="card-heading">עריכת תנועה</h3>
             <form onSubmit={saveEdit} className="stack tight">
               <div className="segmented">
@@ -473,8 +499,10 @@ export function TransactionsView({
               ) : null}
             </form>
           </article>
-        </div>
-      ) : null}
+        </div>,
+        document.body,
+      )
+        : null}
     </div>
   )
 }

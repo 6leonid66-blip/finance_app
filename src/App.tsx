@@ -39,6 +39,7 @@ function App() {
   const [sheetType, setSheetType] = useState<'expense' | 'income'>('expense')
   const [sheetPrefill, setSheetPrefill] = useState<AddExpensePrefill>(null)
   const [addChooserOpen, setAddChooserOpen] = useState(false)
+  const chooserOpenedAtRef = useRef(0)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [sessionUserId, setSessionUserId] = useState<string | null>(null)
   const [sessionUserEmail, setSessionUserEmail] = useState<string | null>(null)
@@ -1029,11 +1030,18 @@ function App() {
           <>
             <header className="app-chrome">
               <div className="app-chrome-top">
-                <span className="app-household-title">{household.name}</span>
-                <MonthChrome value={selectedMonth} onChange={setSelectedMonth} />
+                <div className="household-name-chip" title={household.name}>
+                  <span className="household-name-icon" aria-hidden>
+                    ⌂
+                  </span>
+                  <span className="household-name-text">{household.name}</span>
+                </div>
                 <button type="button" className="icon-btn" aria-label="הגדרות" onClick={() => setSettingsOpen(true)}>
                   ⚙
                 </button>
+              </div>
+              <div className="app-chrome-month-row">
+                <MonthChrome value={selectedMonth} onChange={setSelectedMonth} />
               </div>
               {accounts.length ? (
                 <AccountFilterBar
@@ -1116,14 +1124,26 @@ function App() {
           <BottomNav
             active={screen === 'settings' ? 'dashboard' : screen}
             onChange={setScreen}
-            onAdd={() => setAddChooserOpen(true)}
+            onAdd={() => {
+              chooserOpenedAtRef.current = Date.now()
+              setAddChooserOpen(true)
+            }}
             onVoiceStart={startDockVoice}
             onVoiceEnd={finishDockVoice}
             recording={dockRecording}
           />
           {addChooserOpen ? (
-            <div className="sheet-backdrop" onClick={() => setAddChooserOpen(false)}>
-              <div className="add-chooser" onClick={(e) => e.stopPropagation()}>
+            <div
+              className="sheet-backdrop add-chooser-backdrop"
+              onPointerDown={(e) => {
+                if (Date.now() - chooserOpenedAtRef.current < 450) return
+                if (e.target === e.currentTarget) setAddChooserOpen(false)
+              }}
+            >
+              <div className="add-chooser" role="dialog" aria-labelledby="add-chooser-title">
+                <p id="add-chooser-title" className="add-chooser-title">
+                  מה להוסיף?
+                </p>
                 <button
                   type="button"
                   className="add-chooser-btn add-chooser-expense"
@@ -1144,6 +1164,7 @@ function App() {
                 >
                   הכנסה
                 </button>
+                <p className="add-chooser-hint">לחיצה ארוכה על + להקלטה קולית</p>
               </div>
             </div>
           ) : null}

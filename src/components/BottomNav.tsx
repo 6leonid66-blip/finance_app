@@ -15,7 +15,7 @@ const items: { id: AppScreen; label: string; icon: string }[] = [
   { id: 'transactions', label: 'תנועות', icon: '☰' },
 ]
 
-const LONG_PRESS_MS = 500
+const LONG_PRESS_MS = 550
 
 export function BottomNav({
   active,
@@ -27,6 +27,7 @@ export function BottomNav({
 }: BottomNavProps) {
   const timerRef = useRef<number | null>(null)
   const longRef = useRef(false)
+  const suppressClickRef = useRef(false)
 
   const clearTimer = () => {
     if (timerRef.current != null) {
@@ -37,27 +38,23 @@ export function BottomNav({
 
   const beginPress = () => {
     longRef.current = false
+    suppressClickRef.current = false
     clearTimer()
     timerRef.current = window.setTimeout(() => {
       longRef.current = true
+      suppressClickRef.current = true
       timerRef.current = null
       onVoiceStart()
     }, LONG_PRESS_MS)
   }
 
-  const endPress = () => {
+  const finishPress = () => {
     const wasLong = longRef.current
     clearTimer()
-    longRef.current = false
-    if (wasLong) onVoiceEnd()
-    else onAdd()
-  }
-
-  const cancelPress = () => {
-    const wasLong = longRef.current
-    clearTimer()
-    longRef.current = false
-    if (wasLong) onVoiceEnd()
+    if (wasLong) {
+      longRef.current = false
+      onVoiceEnd()
+    }
   }
 
   return (
@@ -81,11 +78,20 @@ export function BottomNav({
         aria-label={recording ? 'מקליט… שחררו כדי להוסיף' : 'הוספת תנועה. לחיצה ארוכה להקלטה'}
         onPointerDown={(e) => {
           if (e.pointerType === 'mouse' && e.button !== 0) return
-          e.currentTarget.setPointerCapture(e.pointerId)
           beginPress()
         }}
-        onPointerUp={endPress}
-        onPointerCancel={cancelPress}
+        onPointerUp={finishPress}
+        onPointerCancel={finishPress}
+        onClick={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          if (suppressClickRef.current) {
+            suppressClickRef.current = false
+            return
+          }
+          if (longRef.current || recording) return
+          onAdd()
+        }}
         onContextMenu={(e) => e.preventDefault()}
       >
         {recording ? '●' : '+'}
