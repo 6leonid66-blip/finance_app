@@ -25,7 +25,12 @@ import {
   preferredAccountIdForScope,
   type MemberScope,
 } from './lib/memberScope'
-import { getSpeechRecognitionCtor, parseVoiceTranscript, type SpeechRecognitionLike } from './lib/speech'
+import {
+  getSpeechRecognitionCtor,
+  parseVoiceTranscript,
+  transcriptFromSpeechEvent,
+  type SpeechRecognitionLike,
+} from './lib/speech'
 import { readStoredView, writeStoredView } from './lib/viewStorage'
 
 function App() {
@@ -77,8 +82,15 @@ function App() {
   const [recurringRpcError, setRecurringRpcError] = useState<string | null>(null)
   const [householdMembers, setHouseholdMembers] = useState<HouseholdMemberBrief[]>([])
   const [dockRecording, setDockRecording] = useState(false)
+  const [dockTranscript, setDockTranscript] = useState('')
+  const [dockVoiceHint, setDockVoiceHint] = useState<string | null>(null)
+  const [sheetFull, setSheetFull] = useState(false)
   const voiceRecRef = useRef<SpeechRecognitionLike | null>(null)
   const voiceTranscriptRef = useRef('')
+  const voiceStartedRef = useRef(false)
+  const voiceFailedRef = useRef(false)
+  const voiceFinishingRef = useRef(false)
+  const voiceHintTimerRef = useRef<number | null>(null)
 
   const scopedEntries = useMemo(
     () => filterEntriesByMemberScope(entries, selectedScope, accounts),
@@ -575,6 +587,12 @@ function App() {
     writeStoredView(household.id, selectedScope, selectedMonth)
   }, [household, selectedScope, selectedMonth])
 
+  useEffect(() => {
+    return () => {
+      if (voiceHintTimerRef.current != null) window.clearTimeout(voiceHintTimerRef.current)
+    }
+  }, [])
+
   const handleAuth = async (event: FormEvent) => {
     event.preventDefault()
     if (!supabase) return
@@ -669,15 +687,37 @@ function App() {
     await supabase.auth.signOut()
   }
 
-  const openFab = (type: 'expense' | 'income', prefill: AddExpensePrefill = null) => {
+  const showDockVoiceHint = (message: string) => {
+    if (voiceHintTimerRef.current != null) {
+      window.clearTimeout(voiceHintTimerRef.current)
+      voiceHintTimerRef.current = null
+    }
+    setDockVoiceHint(message)
+    voiceHintTimerRef.current = window.setTimeout(() => {
+      setDockVoiceHint(null)
+      voiceHintTimerRef.current = null
+    }, 3200)
+  }
+
+  const openFab = (type: 'expense' | 'income', prefill: AddExpensePrefill = null, full = false) => {
     setSheetType(type)
     setSheetPrefill(prefill)
+    setSheetFull(full)
     setSheetOpen(true)
   }
 
   const startDockVoice = () => {
+    voiceStartedRef.current = false
+    voiceFailedRef.current = false
+    voiceFinishingRef.current = false
+    voiceTranscriptRef.current = ''
+    setDockTranscript('')
+    setAddChooserOpen(false)
     const Ctor = getSpeechRecognitionCtor()
-    if (!Ctor) return
+    if (!Ctor) {
+      showDockVoiceHint('הדפדפן לא תומך בהקלטה קולית')
+      return
+    }
     try {
       voiceRecRef.current?.stop()
     } catch {
@@ -688,23 +728,37 @@ function App() {
     recognition.interimResults = true
     recognition.continuous = true
     recognition.maxAlternatives = 1
-    voiceTranscriptRef.current = ''
     recognition.onresult = (event) => {
-      const transcript = event.results?.[event.results.length - 1]?.[0]?.transcript?.trim()
-      if (transcript) voiceTranscriptRef.current = transcript
+      const transcript = transcriptFromSpeechEvent(event)
+      if (!transcript) return
+      voiceTranscriptRef.current = transcript
+      setDockTranscript(transcript)
     }
-    recognition.onerror = () => setDockRecording(false)
+    recognition.onerror = (event) => {
+      const err = event.error
+      if (voiceFinishingRef.current || err === 'aborted' || err === 'no-speech') {
+        setDockRecording(false)
+        return
+      }
+      voiceFailedRef.current = true
+      setDockRecording(false)
+      showDockVoiceHint('הקלטה קולית נכשלה')
+    }
     recognition.onend = () => setDockRecording(false)
     voiceRecRef.current = recognition
     try {
       recognition.start()
+      voiceStartedRef.current = true
       setDockRecording(true)
     } catch {
+      voiceFailedRef.current = true
       setDockRecording(false)
+      showDockVoiceHint('לא ניתן להתחיל הקלטה')
     }
   }
 
   const finishDockVoice = () => {
+    voiceFinishingRef.current = true
     const rec = voiceRecRef.current
     voiceRecRef.current = null
     try {
@@ -712,9 +766,15 @@ function App() {
     } catch {
       /* ignore */
     }
+    const started = voiceStartedRef.current
+    const failed = voiceFailedRef.current
+    voiceStartedRef.current = false
+    voiceFailedRef.current = false
     setDockRecording(false)
+    setDockTranscript('')
+    if (!started || failed) return
     const parsed = parseVoiceTranscript(voiceTranscriptRef.current, EXPENSE_CATEGORIES)
-    openFab('expense', parsed.note || parsed.amount ? parsed : null)
+    openFab('expense', parsed.note || parsed.amount ? parsed : null, true)
   }
 
   const refreshMonth = () => {
@@ -1087,20 +1147,42 @@ function App() {
               </div>
             </div>
           ) : null}
+          {dockRecording ? (
+            <div className="voice-record-overlay" aria-live="polite" aria-busy="true">
+              <div className="voice-record-card">
+                <div className="voice-record-mic" aria-hidden>
+                  <span className="voice-record-waves">
+                    <i />
+                    <i />
+                    <i />
+                  </span>
+                </div>
+                <p className="voice-record-title">מקליט…</p>
+                <p className="voice-record-hint">שחררו כדי להוסיף</p>
+                {dockTranscript ? <p className="voice-record-transcript">{dockTranscript}</p> : null}
+              </div>
+            </div>
+          ) : null}
+          {dockVoiceHint ? (
+            <p className="dock-voice-hint" role="status">
+              {dockVoiceHint}
+            </p>
+          ) : null}
           <AddExpenseSheet
             open={sheetOpen}
             onClose={() => {
               setSheetOpen(false)
               setSheetPrefill(null)
+              setSheetFull(false)
             }}
             householdId={household.id}
             sessionUserId={sessionUserId}
             householdMembers={householdMembers}
             accounts={accounts}
-            defaultAccountId={defaultAccountId}
             initialType={sheetType}
             prefill={sheetPrefill}
             defaultMonth={selectedMonth}
+            fullScreen={sheetFull}
             onSaved={handleTransactionSaved}
           />
           <SettingsSheet

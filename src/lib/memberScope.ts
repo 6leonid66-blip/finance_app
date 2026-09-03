@@ -53,6 +53,17 @@ export function filterTemplatesByMemberScope<T extends Pick<RecurringTemplate, '
   return templates.filter((row) => row.owner_user_id === userId)
 }
 
+export function preferredAccountIdForOwner(
+  accounts: FinancialAccount[],
+  ownerUserId: string | null,
+): string {
+  if (ownerUserId) {
+    const personal = accounts.find((a) => !a.is_shared && a.owner_user_id === ownerUserId)
+    if (personal) return personal.id
+  }
+  return accounts.find((a) => a.is_shared)?.id ?? accounts[0]?.id ?? ''
+}
+
 export function preferredAccountIdForScope(
   scope: MemberScope,
   accounts: FinancialAccount[],
@@ -61,12 +72,7 @@ export function preferredAccountIdForScope(
   if (scope === 'all' || scope === 'shared') {
     return accounts.find((a) => a.is_shared)?.id ?? accounts[0]?.id ?? ''
   }
-  const userId = memberScopeUserId(scope) ?? sessionUserId
-  if (userId) {
-    const personal = accounts.find((a) => !a.is_shared && a.owner_user_id === userId)
-    if (personal) return personal.id
-  }
-  return accounts.find((a) => !a.is_shared && a.owner_user_id === sessionUserId)?.id ?? accounts[0]?.id ?? ''
+  return preferredAccountIdForOwner(accounts, memberScopeUserId(scope) ?? sessionUserId)
 }
 
 export function defaultSharedAccountId(accounts: FinancialAccount[]): string {

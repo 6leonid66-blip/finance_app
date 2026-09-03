@@ -6,6 +6,7 @@ import type { EntryType, FinanceEntry, FinancialAccount, HouseholdMemberBrief } 
 import { uploadReceiptAttachment } from '../lib/receiptStorage'
 import { getSpeechRecognitionCtor, parseVoiceTranscript } from '../lib/speech'
 import { householdAccountPickLabel } from '../lib/accountPickLabel'
+import { preferredAccountIdForOwner } from '../lib/memberScope'
 import { formatLocalYmd, getLocalMonthValue } from '../lib/month'
 import { CategoryGrid } from './CategoryGrid'
 
@@ -23,10 +24,10 @@ type AddExpenseSheetProps = {
   sessionUserId: string
   householdMembers: HouseholdMemberBrief[]
   accounts: FinancialAccount[]
-  defaultAccountId: string
   initialType?: EntryType
   prefill?: AddExpensePrefill
   defaultMonth?: string
+  fullScreen?: boolean
   onSaved: (saved: { month: string; entry?: FinanceEntry }) => void | Promise<void>
 }
 
@@ -37,10 +38,10 @@ export function AddExpenseSheet({
   sessionUserId,
   householdMembers,
   accounts,
-  defaultAccountId,
   initialType = 'expense',
   prefill,
   defaultMonth,
+  fullScreen = false,
   onSaved,
 }: AddExpenseSheetProps) {
   const [type, setType] = useState<EntryType>(initialType)
@@ -55,7 +56,10 @@ export function AddExpenseSheet({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showMore, setShowMore] = useState(false)
-  const [draftAccountId, setDraftAccountId] = useState(defaultAccountId)
+  const [draftOwnerId, setDraftOwnerId] = useState(sessionUserId)
+  const [draftAccountId, setDraftAccountId] = useState(() =>
+    preferredAccountIdForOwner(accounts, sessionUserId),
+  )
 
   const categories = type === 'expense' ? EXPENSE_CATEGORIES : INCOME_CATEGORIES
 
@@ -87,8 +91,9 @@ export function AddExpenseSheet({
     }
     setAmount(prefill?.amount ?? '')
     setNote(prefill?.note ?? '')
-    setDraftAccountId(defaultAccountId)
-  }, [open, initialType, prefill, defaultMonth, defaultAccountId])
+    setDraftOwnerId(sessionUserId)
+    setDraftAccountId(preferredAccountIdForOwner(accounts, sessionUserId))
+  }, [open, initialType, prefill, defaultMonth, sessionUserId, accounts])
 
   useEffect(() => {
     return () => {
@@ -106,6 +111,10 @@ export function AddExpenseSheet({
     const parsed = Number(amount)
     if (!parsed || parsed <= 0) {
       setError('הזן סכום חיובי')
+      return
+    }
+    if (!draftOwnerId?.trim()) {
+      setError('בחר למי לשייך את התנועה')
       return
     }
     if (!draftAccountId?.trim()) {
@@ -132,7 +141,7 @@ export function AddExpenseSheet({
         .from('transactions')
         .insert({
           household_id: householdId,
-          owner_id: sessionUserId,
+          owner_id: draftOwnerId,
           account_id: draftAccountId || null,
           ...receiptMeta,
           type,
@@ -196,10 +205,26 @@ export function AddExpenseSheet({
     recognition.start()
   }
 
+  const ownerOptions =
+    householdMembers.length > 0
+      ? householdMembers.some((member) => member.userId === sessionUserId)
+        ? householdMembers
+        : [{ userId: sessionUserId, displayName: 'אני', avatarUrl: null }, ...householdMembers]
+      : [{ userId: sessionUserId, displayName: 'אני', avatarUrl: null }]
+
+  const selectOwner = (userId: string) => {
+    setDraftOwnerId(userId)
+    setDraftAccountId(preferredAccountIdForOwner(accounts, userId))
+  }
+
   return (
-    <div className="sheet-backdrop" role="presentation" onClick={onClose}>
+    <div
+      className={fullScreen ? 'sheet-backdrop is-full' : 'sheet-backdrop'}
+      role="presentation"
+      onClick={onClose}
+    >
       <div
-        className="sheet"
+        className={fullScreen ? 'sheet is-full' : 'sheet'}
         role="dialog"
         aria-modal="true"
         aria-labelledby="sheet-title"
@@ -211,6 +236,17 @@ export function AddExpenseSheet({
         </h2>
 
         <form onSubmit={submit} className="sheet-form">
+          <label>
+            שייך ל
+            <select value={draftOwnerId} onChange={(e) => selectOwner(e.target.value)}>
+              {ownerOptions.map((member) => (
+                <option key={member.userId} value={member.userId}>
+                  {member.userId === sessionUserId ? `${member.displayName} (אני)` : member.displayName}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <div className="segmented">
             <button
               type="button"

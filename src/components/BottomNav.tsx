@@ -15,7 +15,7 @@ const items: { id: AppScreen; label: string; icon: string }[] = [
   { id: 'transactions', label: 'תנועות', icon: '☰' },
 ]
 
-const LONG_PRESS_MS = 380
+const LONG_PRESS_MS = 500
 
 export function BottomNav({
   active,

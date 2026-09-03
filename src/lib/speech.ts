@@ -7,13 +7,26 @@ export type SpeechRecognitionEvent = Event & {
   readonly results: ArrayLike<SpeechRecognitionResult>
 }
 
+export type SpeechRecognitionErrorEvent = Event & {
+  readonly error?: string
+}
+
+export function transcriptFromSpeechEvent(event: SpeechRecognitionEvent): string {
+  const parts: string[] = []
+  for (let i = 0; i < event.results.length; i++) {
+    const piece = event.results[i]?.[0]?.transcript?.trim()
+    if (piece) parts.push(piece)
+  }
+  return parts.join(' ').trim()
+}
+
 export type SpeechRecognitionLike = {
   lang: string
   interimResults: boolean
   continuous: boolean
   maxAlternatives: number
   onresult: ((event: SpeechRecognitionEvent) => void) | null
-  onerror: ((event: Event) => void) | null
+  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null
   onend: (() => void) | null
   start: () => void
   stop: () => void
