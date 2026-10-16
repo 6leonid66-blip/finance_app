@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties } from 'react'
 import type { FinanceEntry, FinancialAccount, HouseholdMemberBrief, MonthlyPlan, RecurringTemplate } from '../types'
-import { colorForMember, memberFirstName, SHARED_TINT } from '../lib/memberColor'
+import { colorForMember, SHARED_TINT } from '../lib/memberColor'
 import type { MemberScope } from '../lib/memberScope'
 import { colorForCategory } from '../lib/categoryColors'
 import { supabase } from '../supabase'
 import { formatIls, formatSignedIls } from '../lib/money'
 import { computeMonthForecast } from '../lib/forecast'
+import { computeTogetherBreakdown, monthLabelHe } from '../lib/togetherBreakdown'
 import { EXPENSE_CATEGORIES, categoryIcon } from '../constants/categories'
 import { monthValueToFirstDay, shiftMonthValue } from '../lib/month'
+import { MonthInsightsCard } from './MonthInsightsCard'
 
 type DashboardProps = {
   selectedMonth: string
@@ -49,10 +51,15 @@ export function Dashboard({
   const [budgetCategory, setBudgetCategory] = useState(EXPENSE_CATEGORIES[0] ?? 'מזון')
   const [budgetAmount, setBudgetAmount] = useState('')
   const [budgetSaving, setBudgetSaving] = useState(false)
+  const [budgetError, setBudgetError] = useState<string | null>(null)
 
   const forecast = useMemo(
     () => computeMonthForecast({ monthKey: selectedMonth, entries, templates }),
     [selectedMonth, entries, templates],
+  )
+  const together = useMemo(
+    () => computeTogetherBreakdown(entries, accounts, members, currentUserId),
+    [entries, accounts, members, currentUserId],
   )
 
   const [y, m] = selectedMonth.split('-').map(Number)
@@ -64,13 +71,19 @@ export function Dashboard({
 
   useEffect(() => {
     if (!supabase) return
+    let cancelled = false
     const monthDate = monthValueToFirstDay(selectedMonth)
     void supabase
       .from('monthly_plans')
       .select('id,category,planned_income,planned_expense')
       .eq('household_id', householdId)
       .eq('month_date', monthDate)
-      .then(({ data }) => setPlans((data ?? []) as MonthlyPlan[]))
+      .then(({ data, error }) => {
+        if (cancelled) return
+        setPlans((data ?? []) as MonthlyPlan[])
+        setBudgetError(error ? 'לא ניתן לטעון את התקציבים כרגע.' : null)
+      })
+    return () => { cancelled = true }
   }, [householdId, selectedMonth])
 
   const expenseDistribution = useMemo(() => {
@@ -126,8 +139,8 @@ export function Dashboard({
         label: monthShort(key),
         income: row.income,
         expense: row.expense,
-        incomeH: Math.max(4, (row.income / max) * 100),
-        expenseH: Math.max(4, (row.expense / max) * 100),
+        incomeH: (row.income / max) * 100,
+        expenseH: (row.expense / max) * 100,
       }
     })
   }, [historyEntries, selectedMonth])
@@ -149,7 +162,11 @@ export function Dashboard({
   const saveBudget = async () => {
     if (!supabase) return
     const amt = Number(budgetAmount)
-    if (!amt || amt <= 0) return
+    if (!Number.isFinite(amt) || amt <= 0 || amt >= 1e10) {
+      setBudgetError('יש להזין סכום תקין הגדול מאפס.')
+      return
+    }
+    setBudgetError(null)
     setBudgetSaving(true)
     const monthDate = monthValueToFirstDay(selectedMonth)
     const { error } = await supabase.from('monthly_plans').upsert(
@@ -158,7 +175,6 @@ export function Dashboard({
         month_date: monthDate,
         category: budgetCategory,
         planned_expense: amt,
-        planned_income: 0,
       },
       { onConflict: 'household_id,month_date,category' },
     )
@@ -170,12 +186,13 @@ export function Dashboard({
         .eq('month_date', monthDate)
       setPlans((data ?? []) as MonthlyPlan[])
       setBudgetAmount('')
-    }
+    } else setBudgetError('התקציב לא נשמר. נסו שוב.')
     setBudgetSaving(false)
   }
 
   return (
     <div className="dashboard">
+      <div className="page-intro"><span className="eyebrow">פחות דאגות. יותר אפשרויות.</span><h1>הכסף שלכם, במבט אחד</h1><p className="muted">התמונה החודשית של הבית, עם מקום לתוכניות הבאות.</p></div>
       {loading && !entries.length ? (
         <div className="skeleton-list">
           <div className="skeleton-row" />
@@ -184,7 +201,7 @@ export function Dashboard({
       ) : null}
 
       <article className="hero-remain card">
-        <span className="kpi-label">נשאר להוציא החודש</span>
+        <span className="kpi-label">יתרה צפויה אחרי ההוצאות הקבועות</span>
         <strong className={`hero-remain-value ${forecast.remainingToSpend >= 0 ? 'amount-income' : 'amount-expense'}`}>
           {formatIls(forecast.remainingToSpend, { whole: true })}
         </strong>
@@ -197,52 +214,73 @@ export function Dashboard({
       </article>
 
       {scope === 'all' && members.length ? (
-        <div className="together-split" aria-label="פיצול לפי אדם">
-          {members
-            .slice()
-            .sort((a, b) => {
-              if (a.userId === currentUserId) return -1
-              if (b.userId === currentUserId) return 1
-              return 0
-            })
-            .map((member) => {
-              const personalIds = new Set(
-                accounts.filter((a) => !a.is_shared && a.owner_user_id === member.userId).map((a) => a.id),
-              )
-              const spent = entries
-                .filter((e) => e.type === 'expense' && !e.planned && e.account_id && personalIds.has(e.account_id))
-                .reduce((s, e) => s + e.amount, 0)
-              const tint = colorForMember(member.userId, members, currentUserId)
+        <section className="card together-breakdown" aria-label="פירוט לפי אדם">
+          <h2 className="card-heading">פירוט ביחד · {monthLabelHe(selectedMonth)}</h2>
+          <p className="muted small">הכנסות, הוצאות וכמה נשאר לכל אחד בחודש שנבחר</p>
+          <div className="together-people">
+            {together.people.map((person) => {
+              const tint = colorForMember(person.id, members, currentUserId)
               return (
-                <div
-                  key={member.userId}
-                  className="together-split-item"
+                <article
+                  key={person.id}
+                  className="together-person-card"
                   style={{ '--member-fg': tint.fg, '--member-bg': tint.bg } as CSSProperties}
                 >
-                  <span>{memberFirstName(member.displayName)}</span>
-                  <strong className="tabular">{formatIls(spent, { whole: true })}</strong>
-                </div>
+                  <h3>{person.name}</h3>
+                  <dl className="together-person-stats">
+                    <div>
+                      <dt>הכנסות</dt>
+                      <dd className="amount-income tabular">{formatIls(person.income, { whole: true })}</dd>
+                    </div>
+                    <div>
+                      <dt>הוצאות</dt>
+                      <dd className="amount-expense tabular">{formatIls(person.expense, { whole: true })}</dd>
+                    </div>
+                    <div>
+                      <dt>נשאר</dt>
+                      <dd className={`tabular ${person.remaining >= 0 ? 'amount-income' : 'amount-expense'}`}>
+                        {formatIls(person.remaining, { whole: true })}
+                      </dd>
+                    </div>
+                  </dl>
+                </article>
               )
             })}
-          <div
-            className="together-split-item"
-            style={{ '--member-fg': SHARED_TINT.fg, '--member-bg': SHARED_TINT.bg } as CSSProperties}
-          >
-            <span>משותף</span>
-            <strong className="tabular">
-              {formatIls(
-                entries
-                  .filter((e) => {
-                    if (e.type !== 'expense' || e.planned || !e.account_id) return false
-                    return accounts.some((a) => a.id === e.account_id && a.is_shared)
-                  })
-                  .reduce((s, e) => s + e.amount, 0),
-                { whole: true },
-              )}
-            </strong>
+            <article
+              className="together-person-card"
+              style={{ '--member-fg': SHARED_TINT.fg, '--member-bg': SHARED_TINT.bg } as CSSProperties}
+            >
+              <h3>משותף</h3>
+              <dl className="together-person-stats">
+                <div>
+                  <dt>הכנסות</dt>
+                  <dd className="amount-income tabular">{formatIls(together.shared.income, { whole: true })}</dd>
+                </div>
+                <div>
+                  <dt>הוצאות</dt>
+                  <dd className="amount-expense tabular">{formatIls(together.shared.expense, { whole: true })}</dd>
+                </div>
+                <div>
+                  <dt>נשאר</dt>
+                  <dd className={`tabular ${together.shared.remaining >= 0 ? 'amount-income' : 'amount-expense'}`}>
+                    {formatIls(together.shared.remaining, { whole: true })}
+                  </dd>
+                </div>
+              </dl>
+            </article>
           </div>
-        </div>
+        </section>
       ) : null}
+
+      <MonthInsightsCard
+        key={`${selectedMonth}:${scope}`}
+        selectedMonth={selectedMonth}
+        entries={entries}
+        accounts={accounts}
+        members={members}
+        currentUserId={currentUserId}
+        scope={scope}
+      />
 
       <div className="kpi-grid">
         <article className="kpi-card kpi-income">
@@ -299,6 +337,8 @@ export function Dashboard({
 
       <section className="card">
         <h2 className="card-heading">תקציב לפי קטגוריה</h2>
+        {scope !== 'all' && <p className="muted small">התקציב משותף לכל הבית; ההוצאות המוצגות הן של הבחירה הנוכחית.</p>}
+        {budgetError && <p role="alert" className="inline-status">{budgetError}</p>}
         {budgetRows.length ? (
           <ul className="budget-list">
             {budgetRows.map((row) => (
@@ -324,7 +364,7 @@ export function Dashboard({
           <p className="muted small">הגדירו תקרה לקטגוריה — תראו כמה נוצל.</p>
         )}
         <div className="budget-add">
-          <select value={budgetCategory} onChange={(e) => setBudgetCategory(e.target.value)}>
+          <select aria-label="קטגוריה לתקציב" value={budgetCategory} onChange={(e) => setBudgetCategory(e.target.value)}>
             {EXPENSE_CATEGORIES.filter((c) => !c.startsWith('עסק')).map((c) => (
               <option key={c} value={c}>
                 {c}
@@ -336,6 +376,7 @@ export function Dashboard({
             min={0}
             inputMode="decimal"
             placeholder="תקרה ₪"
+            aria-label="תקרת תקציב בשקלים"
             value={budgetAmount}
             onChange={(e) => setBudgetAmount(e.target.value)}
           />

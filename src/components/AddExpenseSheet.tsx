@@ -65,6 +65,8 @@ export function AddExpenseSheet({
 
   useEffect(() => {
     if (!open) return
+    // Opening a new sheet resets the draft, including voice/file state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setType(initialType)
     setCustomCategory(prefill?.customCategory ?? '')
     setRecordingVoice(false)

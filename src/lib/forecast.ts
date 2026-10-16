@@ -1,5 +1,5 @@
 import type { FinanceEntry, RecurringTemplate } from '../types'
-import { inclusiveMonthSpan, installmentIndex } from './recurringProgress'
+import { inclusiveMonthSpan, installmentIndex } from './recurringProgress.ts'
 
 export function templateAppliesToMonth(row: RecurringTemplate, monthKey: string): boolean {
   if (!row.active) return false
@@ -61,8 +61,8 @@ export function computeMonthForecast(params: {
     }
   }
 
-  const expectedIncome = Math.max(actualIncome, recurringIncome)
-  const expectedExpense = Math.max(actualExpense, recurringExpense)
+  const expectedIncome = actualIncome + pendingRecurringIncome
+  const expectedExpense = actualExpense + pendingRecurringExpense
   const remainingToSpend = expectedIncome - actualExpense - pendingRecurringExpense
   const expectedBalance = expectedIncome - expectedExpense
 
@@ -77,7 +77,7 @@ export function computeMonthForecast(params: {
   const variableSpend = Math.max(0, actualExpense - postedRecurringExpense)
   const dailyRate = dayOfMonth > 0 ? variableSpend / dayOfMonth : 0
   const projectedVariable = dailyRate * daysInMonth
-  const endOfMonthForecast = expectedIncome - recurringExpense - projectedVariable
+  const endOfMonthForecast = expectedIncome - postedRecurringExpense - pendingRecurringExpense - projectedVariable
 
   return {
     actualIncome,

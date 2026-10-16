@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import './App.css'
+import './refresh.css'
 import { AddExpenseSheet } from './components/AddExpenseSheet'
 import type { AddExpensePrefill } from './components/AddExpenseSheet'
 import { AppBootScreen } from './components/AppBootScreen'
@@ -11,6 +12,7 @@ import { TransactionsView } from './components/TransactionsView'
 import { AccountFilterBar } from './components/AccountFilterBar'
 import { MonthChrome } from './components/MonthChrome'
 import { SettingsSheet } from './components/SettingsSheet'
+import { CardSyncPanel } from './components/CardSyncPanel'
 import { isSupabaseConfigured, supabase } from './supabase'
 import type { AppScreen, FinanceEntry, FinancialAccount, Household, HouseholdMemberBrief, RecurringEndRule, RecurringTemplate, UserProfileView } from './types'
 import { getReceiptPublicUrl } from './lib/receiptStorage'
@@ -92,6 +94,7 @@ function App() {
   const voiceFailedRef = useRef(false)
   const voiceFinishingRef = useRef(false)
   const voiceHintTimerRef = useRef<number | null>(null)
+  const monthlyRequestRef = useRef(0)
 
   const scopedEntries = useMemo(
     () => filterEntriesByMemberScope(entries, selectedScope, accounts),
@@ -317,6 +320,7 @@ function App() {
 
   async function loadMonthlyData(householdId: string, monthValue: string, opts?: { silent?: boolean }) {
     if (!supabase) return
+    const requestId = ++monthlyRequestRef.current
     if (!opts?.silent) setLoadingData(true)
     setStatusMessage(null)
     const [yNum, mNum] = monthValue.split('-').map(Number)
@@ -423,7 +427,11 @@ function App() {
           owner_user_id: null,
         }))
       }
-      setTemplates(recurringRows)
+      const { data: skips, error: skipsError } = await supabase.from('recurring_skips')
+        .select('template_id').eq('household_id', householdId).eq('skip_month', monthDate)
+      if (skipsError) throw skipsError
+      const skippedIds = new Set((skips ?? []).map(row => row.template_id))
+      recurringRows = recurringRows.map(row => ({ ...row, skippedThisMonth: skippedIds.has(row.id) }))
 
       const rows = (txData ?? []).map((row) => ({
         ...(row as unknown as FinanceEntry),
@@ -461,6 +469,8 @@ function App() {
       }
 
       const accountRows = (accountData ?? []) as FinancialAccount[]
+      if (requestId !== monthlyRequestRef.current) return
+      setTemplates(recurringRows)
       setAccounts(accountRows)
       const accountMap = new Map(accountRows.map((a) => [a.id, a.name]))
       const recurringById = new Map(
@@ -518,9 +528,9 @@ function App() {
       )
       void refreshHouseholdMembers(householdId)
     } catch (error) {
-      setStatusMessage(`שגיאה בטעינת החודש: ${describeError(error)}`)
+      if (requestId === monthlyRequestRef.current) setStatusMessage(`שגיאה בטעינת החודש: ${describeError(error)}`)
     } finally {
-      setLoadingData(false)
+      if (requestId === monthlyRequestRef.current) setLoadingData(false)
     }
   }
 
@@ -573,12 +583,16 @@ function App() {
 
   useEffect(() => {
     if (!supabase || !sessionUserId) return
+    // Bootstrap synchronizes the authenticated user with external household data.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void bootstrapUserData(sessionUserId, sessionUserEmail)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionUserId, sessionUserEmail])
 
   useEffect(() => {
     if (!household) return
+    // Fetch lifecycle intentionally marks the previous month as loading.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadMonthlyData(household.id, selectedMonth)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [household, selectedMonth])
@@ -1077,6 +1091,7 @@ function App() {
                 />
               ) : null}
 
+              {screen === 'sync' ? <CardSyncPanel householdId={household.id} userId={sessionUserId} accounts={accounts} onRefresh={refreshMonth} /> : null}
               {screen === 'transactions' ? (
                 <TransactionsView
                   entries={scopedEntries}

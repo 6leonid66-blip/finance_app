@@ -1,0 +1,16 @@
+.git/
+.env
+.env.*
+.vercel/
+node_modules/
+dist/
+sync-worker/
+supabase/
+tests/
+preview.local.*
+design-preview.png
+card-sync-preview.png
+digitalocean-*.png
+supabase-*.png
+vercel-cli-approval.png
+github-cli-approval.png

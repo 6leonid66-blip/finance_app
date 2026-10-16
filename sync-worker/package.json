@@ -1,0 +1,22 @@
+{
+  "name": "finance-card-sync-worker",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "serve": "node --env-file=.env server.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "browser:install": "camoufox-js fetch",
+    "start": "node --env-file=.env sync.mjs",
+    "watch": "node --env-file=.env sync.mjs --watch"
+  },
+  "dependencies": {
+    "@sergienko4/israeli-bank-scrapers": "8.8.0",
+    "@supabase/supabase-js": "2.105.1"
+  },
+  "overrides": {
+    "adm-zip": "0.6.1"
+  }
+}

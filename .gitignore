@@ -2,6 +2,8 @@
 .env
 .env.*
 !.env.example
+!sync-worker/.env.server.example
+!sync-worker/.env.cli.example
 
 # Logs
 logs
@@ -13,9 +15,23 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+.vercel/
 dist
 dist-ssr
 *.local
+preview.local.*
+sync-worker/private-data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# Local setup screenshots (may contain account details)
+design-preview.png
+card-sync-preview.png
+digitalocean-*.png
+supabase-*.png
+vercel-cli-approval.png
+github-cli-approval.png
 
 # Editor directories and files
 .vscode/*

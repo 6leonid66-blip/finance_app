@@ -65,6 +65,7 @@ export function BottomNav({
           type="button"
           className={item.id === active ? 'bottom-nav-item active' : 'bottom-nav-item'}
           onClick={() => onChange(item.id)}
+          aria-current={item.id === active ? 'page' : undefined}
         >
           <span className="bottom-nav-icon" aria-hidden>
             {item.icon}
@@ -105,6 +106,10 @@ export function BottomNav({
           ↻
         </span>
         <span>קבועים</span>
+      </button>
+      <button type="button" className={active === 'sync' ? 'bottom-nav-item active' : 'bottom-nav-item'}
+        aria-current={active === 'sync' ? 'page' : undefined} onClick={() => onChange('sync')}>
+        <span className="bottom-nav-icon" aria-hidden>▤</span><span>אשראי</span>
       </button>
     </nav>
   )

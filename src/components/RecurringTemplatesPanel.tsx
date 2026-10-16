@@ -147,12 +147,16 @@ export function RecurringTemplatesPanel({
   }
 
   useEffect(() => {
+    // Start the external fetch and expose its loading state.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [householdId, selectedMonth])
 
   useEffect(() => {
     if (showCreate && !editingId) {
+      // The default owner follows scope only for a new draft, never an existing item.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setOwnerUserId(memberScopeUserId(scope) ?? '')
     }
   }, [scope, showCreate, editingId])

@@ -55,6 +55,8 @@ export function SettingsSheet({
 
   useEffect(() => {
     if (!open) return
+    // Reopening discards unsaved edits and snapshots the current server profile.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setProfileName(profile.full_name ?? '')
     setProfileAvatarUrl(profile.avatar_url ?? '')
     setProfileAvatarPath(profile.avatar_path ?? '')

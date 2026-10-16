@@ -3235,6 +3235,90 @@ input[type='month'] {
   font-size: 0.95rem;
 }
 
+.together-breakdown {
+  margin-bottom: 12px;
+}
+
+.together-people {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.together-person-card {
+  padding: 12px;
+  border-radius: 16px;
+  background: var(--member-bg, var(--card));
+  border: 1px solid color-mix(in srgb, var(--member-fg, var(--border)) 32%, var(--border));
+}
+
+.together-person-card h3 {
+  margin: 0 0 10px;
+  font-size: 1.05rem;
+  color: var(--member-fg, var(--text));
+}
+
+.together-person-stats {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.together-person-stats div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.together-person-stats dt {
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.together-person-stats dd {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+.month-insights-card {
+  margin-bottom: 12px;
+}
+
+.insights-generate-btn {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.insights-output {
+  margin: 12px 0 0;
+  white-space: pre-wrap;
+  font: inherit;
+  font-size: 0.92rem;
+  line-height: 1.55;
+  padding: 12px;
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--track) 70%, var(--card));
+  border: 1px solid var(--border);
+}
+
+.insights-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+@media (min-width: 640px) {
+  .together-people {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 .bottom-nav-add {
   touch-action: manipulation;
   -webkit-touch-callout: none;
