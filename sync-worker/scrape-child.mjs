@@ -24,11 +24,13 @@ process.on('message', async message => {
     const result = await scraper.scrape(message.credentials)
     message.credentials = null
     if (!result.success) {
-      const safe = ['INVALID_PASSWORD', 'INVALID_OTP', 'CHANGE_PASSWORD', 'ACCOUNT_BLOCKED', 'OTP_TIMEOUT', 'TIMEOUT']
+      const safe = ['INVALID_PASSWORD', 'INVALID_OTP', 'CHANGE_PASSWORD', 'ACCOUNT_BLOCKED', 'OTP_TIMEOUT', 'TIMEOUT', 'NETWORK_ERROR', 'WAF_BLOCKED', 'TWO_FACTOR_RETRIEVER_MISSING']
       process.send({ type: 'failed', code: safe.includes(result.errorType) ? result.errorType : 'PROVIDER_ERROR' })
     } else {
-      const parsed = await normalizeCardImport(result, message.provider)
-      process.send({ type: 'result', ...parsed })
+      try {
+        const parsed = await normalizeCardImport(result, message.provider)
+        process.send({ type: 'result', ...parsed })
+      } catch { process.send({ type: 'failed', code: 'IMPORT_FORMAT_ERROR' }) }
     }
   } catch {
     process.send?.({ type: 'failed', code: 'PROVIDER_ERROR' })

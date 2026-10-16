@@ -7,6 +7,13 @@ const fieldLabels: Record<string, string> = { username: 'שם משתמש בחב�
 const stateLabels: Record<CardConnection['status'], string> = { queued: 'ממתין לסנכרון', syncing: 'מתחברים ומעדכנים…', awaiting_otp: 'נדרש קוד אימות', ready: 'מחובר', attention: 'נדרשת פעולה', paused: 'הסנכרון מושהה' }
 const failures: Record<string, string> = { INVALID_PASSWORD: 'חברת האשראי דחתה את פרטי ההתחברות. נתקו וחברו מחדש עם פרטים מעודכנים.', INVALID_OTP: 'חברת האשראי דחתה את הקוד.', CHANGE_PASSWORD: 'יש לעדכן את הסיסמה באתר חברת האשראי ולאחר מכן לחבר מחדש.', ACCOUNT_BLOCKED: 'הגישה נחסמה אצל חברת האשראי. יש לטפל בכך מולה לפני ניסיון נוסף.', OTP_TIMEOUT: 'זמן ההמתנה לקוד הסתיים.', TIMEOUT: 'חברת האשראי לא השלימה את הבקשה בזמן.', MEMBERSHIP_REQUIRED: 'אין עוד הרשאה לבית הזה.', RESTARTED: 'שירות הסנכרון הופעל מחדש. יש להתחיל ניסיון חדש.', SYNC_FAILED: 'הסנכרון לא הושלם. אפשר לנסות שוב; אם התקלה חוזרת יש לבדוק את שירות הסנכרון.' }
 const date = (value: number) => new Date(value).toLocaleString('he-IL', { dateStyle: 'short', timeStyle: 'short' })
+Object.assign(failures, {
+  NETWORK_ERROR: 'לא ניתן להגיע לאתר חברת האשראי כרגע. נסו שוב מאוחר יותר.',
+  WAF_BLOCKED: 'אתר חברת האשראי חסם את הגישה האוטומטית מהשרת. הסנכרון נעצר; אין צורך להזין שוב סיסמה.',
+  TWO_FACTOR_RETRIEVER_MISSING: 'שיטת האימות של חברת האשראי אינה נתמכת בחיבור הנוכחי.',
+  PROVIDER_ERROR: 'חברת האשראי לא השלימה את החיבור. יש לבדוק את התאימות של שירות הסנכרון לפני ניסיון נוסף.',
+  IMPORT_FORMAT_ERROR: 'החיבור הושלם אך נתוני העסקאות לא עברו אימות. לא יובאו עסקאות חדשות.',
+})
 
 export function CardConnections({ householdId, onSynced, request = cardSyncRequest, configured = syncServiceConfigured }: {
   householdId: string; onSynced: () => void; request?: typeof cardSyncRequest; configured?: boolean
@@ -19,6 +26,7 @@ export function CardConnections({ householdId, onSynced, request = cardSyncReque
   const [consent, setConsent] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState('')
   const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState('')
   const [pollError, setPollError] = useState('')
@@ -52,24 +60,28 @@ export function CardConnections({ householdId, onSynced, request = cardSyncReque
   }, [householdId, revision, request, configured])
 
   async function connect() {
-    setBusy(true); setError('')
+    setBusy(true); setError(''); setNotice('שולחים את בקשת החיבור לשירות…')
     const submitted = credentials
     setCredentials({})
     try {
-      await request(householdId, '/connections', 'POST', { provider, credentials: submitted, consent })
+      const row = await request<CardConnection>(householdId, '/connections', 'POST', { provider, credentials: submitted, consent })
+      setConnections(current => [...current.filter(item => item.id !== row.id), row])
+      setNotice('בקשת החיבור התקבלה. מצב הסנכרון מופיע למטה; אם יידרש קוד אימות, תופיע בקשה להזנתו כאן.')
       setShowForm(false); setConsent(false); setRevision(r => r + 1)
-    } catch (failure) { setError(failure instanceof Error ? failure.message : 'החיבור נכשל') }
+    } catch (failure) { setNotice(''); setError(failure instanceof Error ? failure.message : 'החיבור נכשל') }
     finally { setBusy(false) }
   }
   async function action(row: CardConnection, command: 'sync' | 'pause' | 'otp' | 'disconnect') {
     if (command === 'disconnect' && !window.confirm('לנתק את חברת האשראי ולמחוק את פרטי ההתחברות השמורים? העסקאות שכבר נקלטו יישארו.')) return
-    setBusy(true); setError('')
+    setBusy(true); setError(''); setNotice('שולחים את הבקשה…')
     const code = codes[row.id]
     setCodes(current => ({ ...current, [row.id]: '' }))
     try {
-      await request(householdId, `/connections/${row.id}${command === 'disconnect' ? '' : '/' + command}`, command === 'disconnect' ? 'DELETE' : 'POST', command === 'disconnect' ? undefined : command === 'otp' ? { code, challenge: row.challenge } : {})
+      const updated = await request<CardConnection>(householdId, `/connections/${row.id}${command === 'disconnect' ? '' : '/' + command}`, command === 'disconnect' ? 'DELETE' : 'POST', command === 'disconnect' ? undefined : command === 'otp' ? { code, challenge: row.challenge } : {})
+      setConnections(current => command === 'disconnect' ? current.filter(item => item.id !== row.id) : current.map(item => item.id === row.id ? updated : item))
+      setNotice(command === 'otp' ? 'קוד האימות נשלח. ממתינים לתשובת חברת האשראי…' : command === 'disconnect' ? 'חברת האשראי נותקה.' : command === 'pause' ? 'הסנכרון הושהה.' : 'בקשת הסנכרון התקבלה. המצב מתעדכן למטה.')
       setRevision(r => r + 1)
-    } catch (failure) { setError(failure instanceof Error ? failure.message : 'הפעולה נכשלה') }
+    } catch (failure) { setNotice(''); setError(failure instanceof Error ? failure.message : 'הפעולה נכשלה') }
     finally { setBusy(false) }
   }
 
@@ -77,6 +89,7 @@ export function CardConnections({ householdId, onSynced, request = cardSyncReque
   return <section className="card connection-manager"><div className="card-heading-row"><h2 className="card-heading">חברות האשראי שלי</h2><button className="btn-primary" disabled={busy || !loaded} onClick={() => { setShowForm(!showForm); setCredentials({}); setConsent(false) }}>חיבור חברת אשראי</button></div>
     <p className="muted small">סנכרון אוטומטי כל 12 שעות. העסקאות מגיעות לבדיקה ואישור לפני הרישום בתקציב.</p>
     {error && <p role="alert" className="banner-msg">{error}</p>}
+    {notice && <p role="status" aria-live="polite" className="banner-msg">{notice}</p>}
     {pollError && <p role="alert" className="banner-msg">{pollError}</p>}
     {!loaded && <p role="status" className="muted">ממתינים לחיבור לשירות…</p>}
     {showForm && <form className="connection-form" onSubmit={e => { e.preventDefault(); void connect() }}>
@@ -88,10 +101,11 @@ export function CardConnections({ householdId, onSynced, request = cardSyncReque
     </form>}
     {loaded && !connections.length && !showForm && <p className="muted">עדיין לא חיברתם חברת אשראי. כל הכרטיסים שבאותה התחברות ייבדקו יחד.</p>}
     {connections.map(row => <article className="connection-row" key={row.id}>
-      <div className="sync-row-title"><strong>{CARD_PROVIDERS[row.provider as keyof typeof CARD_PROVIDERS] ?? row.provider}</strong><span className={`connection-status state-${row.status}`}>{stateLabels[row.status]}</span></div>
+      <div className="sync-row-title"><strong>{CARD_PROVIDERS[row.provider as keyof typeof CARD_PROVIDERS] ?? row.provider}</strong><span role="status" className={`connection-status state-${row.status}`}>{stateLabels[row.status]}</span></div>
+      {['queued', 'syncing'].includes(row.status) && <p className="muted small">הבקשה בטיפול. החיבור עשוי להימשך כמה דקות; השאירו את המסך פתוח לקבלת קוד אימות אם יידרש.</p>}
       <p className="muted small">{row.lastSuccessAt ? `סנכרון אחרון: ${date(row.lastSuccessAt)}` : 'טרם הושלם סנכרון'}{row.nextRunAt && row.status === 'ready' ? ` · הבא: ${date(row.nextRunAt)}` : ''}</p>
       {row.lastSuccessAt && <p className="muted small">נבדקו {row.checked ?? 0} עסקאות סופיות. {row.pending ?? 0} ממתינות ו־{row.unidentified ?? 0} ללא מזהה לא נקלטו.</p>}
-      {row.error && <p role="status">{failures[row.error] ?? failures.SYNC_FAILED}</p>}
+      {row.error && <p role="alert" className="banner-msg">{failures[row.error] ?? failures.SYNC_FAILED}</p>}
       {row.status === 'awaiting_otp' && <form className="otp-form" onSubmit={e => { e.preventDefault(); void action(row, 'otp') }}>
         <label>הקוד שהתקבל מחברת האשראי<input autoComplete="one-time-code" inputMode="numeric" required pattern="[0-9]{4,10}" minLength={4} maxLength={10} disabled={busy} value={codes[row.id] ?? ''} onChange={e => setCodes(current => ({ ...current, [row.id]: e.target.value }))} /></label>
         <p className="muted small">הקוד משמש לבקשה הזו בלבד ואינו נשמר. {row.otpExpiresAt ? `ניתן לשלוח עד ${date(row.otpExpiresAt)}.` : ''}</p>

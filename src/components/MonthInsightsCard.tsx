@@ -79,6 +79,7 @@ export function MonthInsightsCard({
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.data.session?.access_token ?? ''}` },
         body: JSON.stringify({ snapshot }),
+        signal: AbortSignal.timeout(40_000),
       })
       const data = (await response.json()) as { text?: string; error?: string }
       if (response.ok && data.text?.trim()) {
@@ -89,7 +90,7 @@ export function MonthInsightsCard({
       const fallback = localAdvisorSummary(selectedMonth, breakdown)
       setText(fallback)
       setSource('local')
-      setError(data.error || 'נוצר סיכום מהנתונים. תובנות AI דורשות GEMINI_API_KEY בשרת.')
+      setError(data.error || 'יצירת תובנות ה-AI לא הושלמה. מוצג סיכום מקומי מהנתונים.')
     } catch {
       setText(localAdvisorSummary(selectedMonth, breakdown))
       setSource('local')
@@ -131,7 +132,8 @@ export function MonthInsightsCard({
       <button type="button" className="btn-primary insights-generate-btn" disabled={loading} onClick={() => void generate()}>
         {loading ? 'מייצר תובנות…' : 'יצירת המלצות ותובנות מ-AI'}
       </button>
-      {error ? <p className="muted small">{error}</p> : null}
+      {loading && <p role="status" className="banner-msg">מנתחים את נתוני החודש… הפעולה עשויה להימשך עד 40 שניות.</p>}
+      {error ? <p role="alert" className="banner-msg">{error}</p> : null}
       {text ? (
         <>
           <pre className="insights-output">{text}</pre>

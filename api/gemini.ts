@@ -4,6 +4,13 @@ import { createClient } from '@supabase/supabase-js'
 import type { InsightSnapshot } from '../src/lib/insightSnapshot.ts'
 
 export type { InsightSnapshot }
+export const maxDuration = 60
+export const DEFAULT_INSIGHTS_MODEL = 'gemini-3.5-flash-lite'
+
+export class InsightsError extends Error {
+  status: number
+  constructor(status: number, message: string) { super(message); this.status = status }
+}
 
 function readJsonBody(req: IncomingMessage): Promise<unknown> {
   if ('body' in req && req.body != null) {
@@ -73,35 +80,41 @@ ${peopleBlock}
 4) 3 המלצות מעשיות לשבוע הקרוב`
 }
 
-export async function generateMonthInsights(apiKey: string, snapshot: InsightSnapshot): Promise<string> {
+export async function generateMonthInsights(apiKey: string, snapshot: InsightSnapshot, model = DEFAULT_INSIGHTS_MODEL): Promise<string> {
   const prompt = buildAdvisorPrompt(snapshot)
-  const models = ['gemini-2.0-flash', 'gemini-1.5-flash']
-  let lastError = 'Gemini לא החזיר תשובה'
-  for (const model of models) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(apiKey)}`
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`
     const response = await fetch(url, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
+      signal: AbortSignal.timeout(25_000),
       body: JSON.stringify({
         contents: [{ role: 'user', parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.7, maxOutputTokens: 900 },
+        generationConfig: { temperature: 0.7, maxOutputTokens: 2000 },
       }),
     })
     const data = (await response.json()) as {
-      error?: { message?: string }
-      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string; thought?: boolean }> } }>
     }
     if (!response.ok) {
-      lastError = data.error?.message || `Gemini ${response.status}`
-      continue
+      // Only status/model are logged; never prompts, API keys or provider error text.
+      console.warn('insights_provider_error', { status: response.status, model })
+      if (response.status === 429) throw new InsightsError(429, 'מכסת שירות התובנות נוצלה כרגע. נסו שוב מאוחר יותר.')
+      if ([400, 401, 403].includes(response.status)) throw new InsightsError(503, 'שירות התובנות דורש תיקון הרשאות אצל ספק ה-AI.')
+      if (response.status === 404) throw new InsightsError(503, 'מודל התובנות אינו זמין כרגע. נדרש עדכון בהגדרות השירות.')
+      throw new InsightsError(503, 'ספק התובנות אינו זמין כרגע. נסו שוב בעוד כמה דקות.')
     }
-    const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? '').join('\n').trim()
+    const text = data.candidates?.[0]?.content?.parts?.filter(p => !p.thought).map((p) => p.text ?? '').join('\n').trim()
     if (text) return text
+    throw new InsightsError(502, 'שירות התובנות לא החזיר ניתוח. נסו שוב.')
+  } catch (error) {
+    if (error instanceof InsightsError) throw error
+    if (error instanceof DOMException && ['TimeoutError', 'AbortError'].includes(error.name)) throw new InsightsError(504, 'יצירת התובנות ארכה יותר מדי זמן. נסו שוב.')
+    throw new InsightsError(503, 'לא ניתן להתחבר לשירות התובנות כרגע. נסו שוב.')
   }
-  throw new Error(lastError)
 }
 
-export async function handleInsights(req: IncomingMessage, res: ServerResponse, config: { apiKey?: string; supabaseUrl?: string; anonKey?: string }) {
+export async function handleInsights(req: IncomingMessage, res: ServerResponse, config: { apiKey?: string; supabaseUrl?: string; anonKey?: string; model?: string }) {
   if (req.method === 'OPTIONS') {
     res.statusCode = 204
     res.end()
@@ -113,7 +126,7 @@ export async function handleInsights(req: IncomingMessage, res: ServerResponse, 
   }
   const apiKey = config.apiKey
   if (!apiKey) {
-    writeJson(res, 501, { error: 'חסר GEMINI_API_KEY בשרת' })
+    writeJson(res, 503, { error: 'שירות התובנות עדיין לא הוגדר. אפשר להשתמש בסיכום המקומי בינתיים.' })
     return
   }
   try {
@@ -134,14 +147,14 @@ export async function handleInsights(req: IncomingMessage, res: ServerResponse, 
       writeJson(res, 400, { error: 'חסר snapshot' })
       return
     }
-    const text = await generateMonthInsights(apiKey, snapshot)
+    const text = await generateMonthInsights(apiKey, snapshot, config.model)
     writeJson(res, 200, { text })
-  } catch {
-    writeJson(res, 500, { error: 'לא ניתן ליצור תובנות כרגע. נסו שוב מאוחר יותר.' })
+  } catch (error) {
+    writeJson(res, error instanceof InsightsError ? error.status : 500, { error: error instanceof InsightsError ? error.message : 'לא ניתן ליצור תובנות כרגע. נסו שוב מאוחר יותר.' })
   }
 }
 
 export default async function handler(req: IncomingMessage, res: ServerResponse) {
-  return handleInsights(req, res, { apiKey: process.env.GEMINI_API_KEY,
+  return handleInsights(req, res, { apiKey: process.env.GEMINI_API_KEY, model: process.env.GEMINI_MODEL,
     supabaseUrl: process.env.VITE_SUPABASE_URL, anonKey: process.env.VITE_SUPABASE_ANON_KEY })
 }

@@ -11,6 +11,7 @@ export default defineConfig(({ mode }) => {
         server.middlewares.use('/api/gemini', (req, res) => {
           void handleInsights(req, res, {
             apiKey: env.GEMINI_API_KEY,
+            model: env.GEMINI_MODEL,
             supabaseUrl: env.VITE_SUPABASE_URL,
             anonKey: env.VITE_SUPABASE_ANON_KEY,
           })

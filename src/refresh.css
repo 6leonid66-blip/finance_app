@@ -91,3 +91,5 @@ input, select { min-height: 44px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; }
 }
+.together-total { padding: 16px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); margin-block: 14px; }
+.together-total dd { font-size: clamp(1.1rem, 3vw, 1.6rem); font-weight: 800; }

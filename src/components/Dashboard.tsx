@@ -215,8 +215,14 @@ export function Dashboard({
 
       {scope === 'all' && members.length ? (
         <section className="card together-breakdown" aria-label="פירוט לפי אדם">
-          <h2 className="card-heading">פירוט ביחד · {monthLabelHe(selectedMonth)}</h2>
-          <p className="muted small">הכנסות, הוצאות וכמה נשאר לכל אחד בחודש שנבחר</p>
+          <h2 className="card-heading">ביחד · סך הכול לבית · {monthLabelHe(selectedMonth)}</h2>
+          <dl className="together-person-stats together-total" aria-label="סכום כולל לכל בני הבית">
+            <div><dt>סך ההכנסות</dt><dd className="amount-income tabular">{formatIls(together.household.income, { whole: true })}</dd></div>
+            <div><dt>סך ההוצאות</dt><dd className="amount-expense tabular">{formatIls(together.household.expense, { whole: true })}</dd></div>
+            <div><dt>{together.household.remaining < 0 ? 'גירעון החודש' : 'יתרה החודש'}</dt><dd className={`tabular ${together.household.remaining >= 0 ? 'amount-income' : 'amount-expense'}`}>{formatIls(together.household.remaining, { whole: true })}</dd></div>
+          </dl>
+          <p className="muted small">הסכום הכולל כולל את כל בני הבית ואת החשבונות המשותפים, ללא כפל ספירה. אלו תנועות שנרשמו בחודש, ללא תנועות מתוכננות; היתרה אינה יתרת הבנק.</p>
+          <h3>איך הסכום מתחלק ביניכם</h3>
           <div className="together-people">
             {together.people.map((person) => {
               const tint = colorForMember(person.id, members, currentUserId)
@@ -250,7 +256,7 @@ export function Dashboard({
               className="together-person-card"
               style={{ '--member-fg': SHARED_TINT.fg, '--member-bg': SHARED_TINT.bg } as CSSProperties}
             >
-              <h3>משותף</h3>
+              <h3>חשבונות משותפים בלבד</h3>
               <dl className="together-person-stats">
                 <div>
                   <dt>הכנסות</dt>

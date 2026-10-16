@@ -64,7 +64,7 @@ export function createSyncService({ vault, origin, authenticate, isMember, inges
         checked: result.rows.length, pending: result.pending, unidentified: result.unidentified, challenge: null, otpExpiresAt: null })
     } catch (error) {
       if (jobs.get(row.id) !== job) return
-      const codes = ['INVALID_PASSWORD', 'INVALID_OTP', 'CHANGE_PASSWORD', 'ACCOUNT_BLOCKED', 'OTP_TIMEOUT', 'TIMEOUT', 'MEMBERSHIP_REQUIRED']
+      const codes = ['INVALID_PASSWORD', 'INVALID_OTP', 'CHANGE_PASSWORD', 'ACCOUNT_BLOCKED', 'OTP_TIMEOUT', 'TIMEOUT', 'MEMBERSHIP_REQUIRED', 'NETWORK_ERROR', 'WAF_BLOCKED', 'TWO_FACTOR_RETRIEVER_MISSING', 'PROVIDER_ERROR', 'IMPORT_FORMAT_ERROR']
       patch(row.id, { status: 'attention', error: codes.includes(error.message) ? error.message : 'SYNC_FAILED', nextRunAt: null, challenge: null, otpExpiresAt: null })
     } finally { if (jobs.get(row.id) === job) jobs.delete(row.id) }
   }
